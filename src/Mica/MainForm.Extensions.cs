@@ -19,6 +19,8 @@ namespace Mica
 
         WebView2 extPopup;             // a floating action popup, like Chrome
         string extPopupId;
+        Timer popupWatch;
+        bool popupHasFocus, popupEverFocused;
 
         // Send the enabled extensions to the toolbar.
         async Task SendExtToolbar()
@@ -49,6 +51,8 @@ namespace Mica
 
         async Task ExtAction(string id, Rectangle anchor)
         {
+            if (extPopupId == id) { CloseExtPopup(); return; }   // clicking the same icon closes it
+            CloseExtPopup();
             var list = await Extensions.List(Profile);
             var ext = list.FirstOrDefault(o => Prop(o, "id") == id);
             if (ext == null) return;
@@ -56,7 +60,7 @@ namespace Mica
             if (side != null) ToggleExtPanel(id, side, Prop(ext, "name"));
             else if (popup != null) await OpenExtPopup(id, popup, anchor);
             else if (options != null) _ = NewTab(options);
-            else PostUi(new { type = "toast", text = "This extension works in the background — no window to open.", icon = "puzzle" });
+            else PostUi(new { type = "extNote", id, name = Prop(ext, "name") });   // a small card under the icon, not a toolbar banner
         }
 
         // ---------------- side panel ----------------
@@ -137,14 +141,32 @@ namespace Mica
                 catch { }
             };
             // Close when focus leaves the popup (clicking the page or anywhere else), like Chrome.
-            // The controller's own focus events fire reliably across sibling WebView2s; WinForms LostFocus doesn't.
-            if (controllerField?.GetValue(v) is CoreWebView2Controller ctl)
+            // Focus bounces around for a moment right after opening — the click that opened the popup is
+            // still being handled by the toolbar — so watch the focus state instead of closing on the
+            // first LostFocus, and only once the popup has actually held focus.
+            var ctl = controllerField?.GetValue(v) as CoreWebView2Controller;
+            if (ctl != null)
             {
-                bool armed = false;
-                ctl.GotFocus += (s, e) => armed = true;
-                ctl.LostFocus += (s, e) => BeginInvoke(new Action(() => { if (extPopup == v && armed) CloseExtPopup(); }));
+                ctl.GotFocus += (s, e) => { popupHasFocus = true; popupEverFocused = true; };
+                ctl.LostFocus += (s, e) => popupHasFocus = false;
             }
+            popupHasFocus = popupEverFocused = false;
+            var opened = DateTime.UtcNow;
+            popupWatch = new Timer { Interval = 200 };
+            popupWatch.Tick += (s, e) =>
+            {
+                if (extPopup != v) { StopPopupWatch(); return; }
+                if (!popupEverFocused || popupHasFocus) return;
+                if ((DateTime.UtcNow - opened).TotalMilliseconds < 700) return;
+                CloseExtPopup();
+            };
+            popupWatch.Start();
             SizePopup(anchor, 360, 480);
+            c.NavigationCompleted += (s, e) =>
+            {
+                // make sure focus really lands in the popup once it has something to show
+                try { if (extPopup == v) { v.BringToFront(); ctl?.MoveFocus(CoreWebView2MoveFocusReason.Programmatic); } } catch { }
+            };
             c.Navigate(url);
             v.Visible = true;
             v.BringToFront();
@@ -168,8 +190,15 @@ namespace Mica
             extPopup.BringToFront();
         }
 
+        void StopPopupWatch()
+        {
+            if (popupWatch == null) return;
+            popupWatch.Stop(); popupWatch.Dispose(); popupWatch = null;
+        }
+
         void CloseExtPopup()
         {
+            StopPopupWatch();
             extPopupId = null;
             if (extPopup != null) { Controls.Remove(extPopup); extPopup.Dispose(); extPopup = null; }
         }

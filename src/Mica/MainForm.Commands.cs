@@ -565,6 +565,7 @@ namespace Mica
                     else SetFullscreen(active, true);
                     return true;
                 case Keys.Escape:
+                    if (extPopup != null) { CloseExtPopup(); return true; }
                     if (fullscreen && fsTab?.View?.CoreWebView2?.ContainsFullScreenElement != true) { SetFullscreen(fsTab, false); return true; }
                     break;
                 case Keys.F5:

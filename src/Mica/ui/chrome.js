@@ -40,6 +40,7 @@ if (hasHost) chrome.webview.addEventListener('message', e => {
     case 'downloads': onDownloads(m); break;
     case 'extToolbar': onExtToolbar(m); break;
     case 'extPanel': onExtPanel(m); break;
+    case 'extNote': onExtNote(m); break;
     case 'pageMenu': onPageMenu(m); break;
     case 'openFind': openFind(m.q); break;
     case 'closeFind': closeFind(true); break;
@@ -560,6 +561,21 @@ S.extList = [];
 function onExtToolbar(m) { S.extList = m.list || []; if (m.openPanel !== undefined) lastPanelId = m.openPanel; renderExtBar(); markExtActive(); }
 function onExtPanel(m) { lastPanelId = m.open ? m.id : null; if (m.name) $('#ext-title').textContent = m.name; markExtActive(); }
 function markExtActive() { $$('.ext-btn', $('#ext-bar')).forEach(el => el.classList.toggle('active', el.dataset.id === lastPanelId)); }
+// Extensions with no popup and no side panel: a small card under the icon, not a banner in the toolbar.
+function onExtNote(m) {
+  const btn = $('.ext-btn[data-id="' + m.id + '"]');
+  if (!btn) return;
+  const e = S.extList.find(x => x.id === m.id) || {};
+  const r = btn.getBoundingClientRect();
+  const rows = ['<div class="mhead">' + esc(m.name || 'Extension') + '</div>',
+    '<div class="mnote">Runs in the background — it has no window to open.</div>', sep];
+  if (e.options) rows.push(mi('options', 'settings', 'Options'));
+  rows.push(mi('manage', 'puzzle', 'Manage extensions'));
+  ctxMenu(Math.max(8, r.right - 240), r.bottom + 6, rows, act => {
+    if (act === 'options') host({ cmd: 'extOpen2', url: e.options });
+    else if (act === 'manage') host({ cmd: 'extensions' });
+  });
+}
 function extFallbackIcon() { return '<svg class="i" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.75" stroke-linecap="round" stroke-linejoin="round">' + MicaIcons.puzzle + '</svg>'; }
 function renderExtBar() {
   const bar = $('#ext-bar');
