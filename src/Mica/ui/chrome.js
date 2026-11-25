@@ -38,6 +38,8 @@ if (hasHost) chrome.webview.addEventListener('message', e => {
     case 'zoom': S.zoom = m.value; const z = $('#zoom-val'); if (z) z.textContent = m.value + '%'; break;
     case 'imported': Tour.onImported(m); break;
     case 'downloads': onDownloads(m); break;
+    case 'extToolbar': onExtToolbar(m); break;
+    case 'extPanel': onExtPanel(m); break;
     case 'pageMenu': onPageMenu(m); break;
     case 'openFind': openFind(m.q); break;
     case 'closeFind': closeFind(true); break;
@@ -55,6 +57,8 @@ function onState(m) {
   body.classList.toggle('ai', !!S.ai);
   S.devtools = !!m.devtools;
   body.classList.toggle('devtools', S.devtools);
+  S.ext = !!m.ext;
+  body.classList.toggle('extpanel', S.ext);
   body.classList.toggle('maximized', !!S.maximized);
   body.classList.toggle('fullscreen', !!S.fullscreen);
   renderTabs();
@@ -78,6 +82,7 @@ function onSettings(s) {
   $('#mem-pill').classList.toggle('show', !!S.settings.showMemory);
   document.documentElement.style.setProperty('--ai-w', (S.settings.aiWidth || 400) + 'px');
   document.documentElement.style.setProperty('--dev-w', (S.settings.devWidth || 560) + 'px');
+  document.documentElement.style.setProperty('--ext-w', (S.settings.extWidth || 400) + 'px');
   $('#address').placeholder = 'Search ' + (ENGINES[S.settings.search] || 'Google') + ' or type a URL';
   $$('#ai-provider button').forEach(b => b.classList.toggle('on', b.dataset.provider === (S.settings.aiProvider || 'duck')));
   const bg = /^#/.test(t.bg) ? t.bg : '#ffffff';
@@ -549,6 +554,47 @@ $('#bookmarks-bar').addEventListener('contextmenu', e => {
 });
 
 // =====================================================================
+//  Extension toolbar icons (next to the address bar, like Chrome)
+// =====================================================================
+S.extList = [];
+function onExtToolbar(m) { S.extList = m.list || []; if (m.openPanel !== undefined) lastPanelId = m.openPanel; renderExtBar(); markExtActive(); }
+function onExtPanel(m) { lastPanelId = m.open ? m.id : null; if (m.name) $('#ext-title').textContent = m.name; markExtActive(); }
+function markExtActive() { $$('.ext-btn', $('#ext-bar')).forEach(el => el.classList.toggle('active', el.dataset.id === lastPanelId)); }
+function extFallbackIcon() { return '<svg class="i" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.75" stroke-linecap="round" stroke-linejoin="round">' + MicaIcons.puzzle + '</svg>'; }
+function renderExtBar() {
+  const bar = $('#ext-bar');
+  const list = S.extList;
+  const key = list.map(e => e.id + (e.icon || '') + e.name).join('|');
+  if (bar.dataset.key === key) { bar.classList.toggle('on', S.ext); return; }
+  bar.dataset.key = key;
+  bar.classList.toggle('has', list.length > 0);
+  bar.innerHTML = list.map(e =>
+    '<button class="ext-btn" data-id="' + e.id + '" title="' + esc(e.name) + '">' +
+    (e.icon ? '<img src="' + esc(e.icon) + '" alt="" onerror="this.outerHTML=extFallbackIcon()">' : extFallbackIcon()) +
+    '</button>').join('');
+  $$('.ext-btn', bar).forEach(el => {
+    const e = list.find(x => x.id === el.dataset.id);
+    el.addEventListener('click', () => {
+      const r = el.getBoundingClientRect(), d = devicePixelRatio;
+      host({ cmd: 'extAction', id: e.id, rect: { x: Math.round(r.left * d), y: Math.round(r.top * d), w: Math.round(r.width * d), h: Math.round(r.height * d) } });
+    });
+    el.addEventListener('contextmenu', ev => {
+      ev.preventDefault(); ev.stopPropagation();
+      const items = [mi('open', 'external', 'Open extension page')];
+      if (e.options) items.push(mi('options', 'settings', 'Options'));
+      items.push(sep, mi('manage', 'puzzle', 'Manage extensions'), mi('remove', 'trash', 'Remove from Mica'));
+      ctxMenu(ev.clientX, ev.clientY, items, act => {
+        if (act === 'open') host({ cmd: 'extOpen2', url: e.sidePanel || e.popup || e.options || ('chrome-extension://' + e.id + '/manifest.json') });
+        else if (act === 'options') host({ cmd: 'extOpen2', url: e.options });
+        else if (act === 'manage') host({ cmd: 'extensions' });
+        else if (act === 'remove') { host({ cmd: 'extRemove', id: e.id }); toast('Extension removed', 'puzzle'); }
+      });
+    });
+  });
+}
+let lastPanelId = null;
+
+// =====================================================================
 //  Layout reporting: tells the host where to place the page views
 // =====================================================================
 let layoutQueued = false, lastLayout = '';
@@ -570,6 +616,7 @@ function reportLayout() {
     b: S.split ? rectOf($('#pane-b')) : null,
     ai: S.ai ? rectOf($('#ai-host')) : null,
     dev: S.devtools ? rectOf($('#dev-host')) : null,
+    ext: S.ext ? rectOf($('#ext-host')) : null,
     radius: Math.round((parseFloat(getComputedStyle(a).borderTopLeftRadius) || 0) * devicePixelRatio),
   };
   const key = JSON.stringify(m);
@@ -611,6 +658,12 @@ dragResize($('#ai-resize'), e => {
   S.settings.aiWidth = w;
   document.documentElement.style.setProperty('--ai-w', w + 'px');
 }, () => host({ cmd: 'setSetting', key: 'aiWidth', value: S.settings.aiWidth }));
+new ResizeObserver(queueLayout).observe($('#ext-host'));
+dragResize($('#ext-resize'), e => {
+  const w = Math.round(Math.min(window.innerWidth * .6, Math.max(300, window.innerWidth - e.clientX - parseFloat(getComputedStyle(document.documentElement).getPropertyValue('--inset')))));
+  S.settings.extWidth = w;
+  document.documentElement.style.setProperty('--ext-w', w + 'px');
+}, () => host({ cmd: 'setSetting', key: 'extWidth', value: S.settings.extWidth }));
 
 function renderSplitBar() {
   if (!S.split) return;

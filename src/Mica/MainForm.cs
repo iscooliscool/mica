@@ -578,6 +578,7 @@ namespace Mica
                 if (devOpen && rectDev.Width > 0) { if (dev.Bounds != rectDev) dev.Bounds = rectDev; dev.Visible = true; }
                 else dev.Visible = false;
             }
+            LayoutExtras();
             if (overlay) ui.BringToFront(); else ui.SendToBack();
         }
 
@@ -788,6 +789,7 @@ namespace Mica
                     activeId = active?.Id ?? 0,
                     split = splitA != null ? new { a = splitA.Id, b = splitB.Id } : null,
                     ai = aiOpen,
+                    ext = extOpen,
                     devtools = devOpen,
                     maximized = WindowState == FormWindowState.Maximized,
                     fullscreen,

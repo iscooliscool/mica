@@ -51,6 +51,8 @@
           <button class="omni-btn" id="btn-star" title="Bookmark this page (Ctrl+D)"><i data-icon="star"></i></button>
         </div>
 
+        <div id="ext-bar" class="nodrag"></div>
+
         <div class="tb-group right">
           <div id="toast" class="toast" role="status"></div>
           <button id="update-pill" class="pill accent" title="A new version of Mica is ready"><i data-icon="update"></i><span></span></button>
@@ -101,6 +103,17 @@
             </div>
           </div>
           <div id="ai-host" class="pane"></div>
+        </section>
+
+        <section id="extpanel">
+          <div id="ext-resize" title="Drag to resize"></div>
+          <div class="ai-head">
+            <div class="dev-title"><i data-icon="puzzle"></i><span id="ext-title">Extension</span></div>
+            <div class="ai-actions">
+              <button class="tb sm" data-cmd="extPanelClose" title="Close panel"><i data-icon="x"></i></button>
+            </div>
+          </div>
+          <div id="ext-host" class="pane"></div>
         </section>
 
         <section id="devpanel">

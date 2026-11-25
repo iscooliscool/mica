@@ -34,9 +34,10 @@ namespace Mica
                     if (Incognito) break;
                     if (!store.B("firstRunDone")) PostUi(new { type = "startTour", first = true });
                     else _ = AutoCheckUpdate();
+                    _ = SendExtToolbar();
                     break;
                 case "layout":
-                    rectA = Rect(m.Sub("a")); rectB = Rect(m.Sub("b")); rectAi = Rect(m.Sub("ai")); rectDev = Rect(m.Sub("dev"));
+                    rectA = Rect(m.Sub("a")); rectB = Rect(m.Sub("b")); rectAi = Rect(m.Sub("ai")); rectDev = Rect(m.Sub("dev")); rectExt = Rect(m.Sub("ext"));
                     contentRadius = m.Int("radius");
                     ApplyLayout();
                     break;
@@ -163,6 +164,11 @@ namespace Mica
                 case "swapSplit": if (splitA != null) { var x = splitA; splitA = splitB; splitB = x; ApplyLayout(); SendState(); } break;
                 case "ai": ToggleAi(m.ContainsKey("open") ? m.Bool("open") : !aiOpen); break;
                 case "aiProvider": SetSetting("aiProvider", m.Str("provider", "duck")); if (ai != null) ai.CoreWebView2?.Navigate(AiUrl()); break;
+                case "extAction": _ = ExtAction(m.Str("id"), Rect(m.Sub("rect"))); break;
+                case "extPanelClose": CloseExtPanel(); break;
+                case "extPopupClose": CloseExtPopup(); break;
+                case "extToolbar": _ = SendExtToolbar(); break;
+                case "extOpen2": { var u = m.Str("url"); if (u != null && u.StartsWith("chrome-extension://")) _ = NewTab(u); break; }
                 case "summarize": _ = AskAi(null); break;
                 case "tourDone": store.Set("firstRunDone", true); store.Flush(); break;
                 case "update": _ = RunUpdate(); break;
@@ -191,10 +197,10 @@ namespace Mica
                     break;
                 case "extList": _ = SendExtensions(t); break;
                 case "extToggle":
-                    _ = Run(async () => { await Extensions.SetEnabled(Profile, m.Str("id"), m.Bool("on")); await SendExtensions(t); });
+                    _ = Run(async () => { await Extensions.SetEnabled(Profile, m.Str("id"), m.Bool("on")); await SendExtensions(t); await SendExtToolbar(); });
                     break;
                 case "extRemove":
-                    _ = Run(async () => { await Extensions.Remove(Profile, m.Str("id")); await SendExtensions(t); });
+                    _ = Run(async () => { if (extPanelId == m.Str("id")) CloseExtPanel(); await Extensions.Remove(Profile, m.Str("id")); await SendExtensions(t); await SendExtToolbar(); });
                     break;
                 case "extOpen": { var u = m.Str("url"); if (u != null && u.StartsWith("chrome-extension://")) _ = NewTab(u); break; }
                 case "navigate":
@@ -267,6 +273,7 @@ namespace Mica
                         if (m.Bool("extensions", true)) QuietTabsUntil = DateTime.UtcNow.AddSeconds(20);
                         if (r.Bookmarks > 0 && !store.B("bookmarksBar")) SetSetting("bookmarksBar", true);
                         SendBookmarks();
+                        if (r.Extensions > 0) await SendExtToolbar();
                         reply(new { type = "imported", source = src, from = m.Str("from"), bookmarks = r.Bookmarks, history = r.History, extensions = r.Extensions, extensionsFailed = r.ExtensionsFailed, error = r.Error, count = r.Error != null ? -2 : r.Bookmarks + r.History + r.Extensions });
                     });
                     break;
@@ -390,6 +397,7 @@ namespace Mica
                     await Extensions.InstallFromStore(Profile, id, env.BrowserVersionString);
                     PostUi(new { type = "toast", text = "Extension added to Mica", icon = "puzzle", action = "extensions" });
                     Post(t, new { micaType = "extInstalled", id, ok = true });
+                    await SendExtToolbar();
                 }
                 catch (Exception ex)
                 {
@@ -418,6 +426,7 @@ namespace Mica
             // The engine serves its own copy of DevTools locally: instant and works offline.
             var url = "http://127.0.0.1:" + DevToolsPort + "/devtools/devtools_app.html?ws=127.0.0.1:" + DevToolsPort + "/devtools/page/" + targetId;
             if (aiOpen) ToggleAi(false);
+            if (extOpen) CloseExtPanel();
             devTab = t;
             devOpen = true;
             if (dev == null)
@@ -460,6 +469,7 @@ namespace Mica
         async void SetOverlay(bool on)
         {
             if (on == overlay) { if (on) ui.BringToFront(); return; }
+            if (on) CloseExtPopup();   // the popup is a real window; don't let it sit over a menu
             overlay = on;
             if (!on) { ui.SendToBack(); if (active?.View != null && !fullscreen) active.View.Focus(); return; }
 
@@ -644,6 +654,7 @@ namespace Mica
         void ToggleAi(bool open)
         {
             if (open && devOpen) CloseDevTools();
+            if (open && extOpen) CloseExtPanel();
             if (open && !store.B("aiEnabled")) { OpenInternal("settings#ai"); return; }
             aiOpen = open;
             if (open && ai == null) _ = CreateAi();

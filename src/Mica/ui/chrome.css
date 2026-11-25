@@ -586,3 +586,22 @@ body.finding #findbar { display: flex; }
 .perm-row .icon-bubble { width: 38px; height: 38px; border-radius: 12px; display: grid; place-items: center; background: var(--accent-soft); color: var(--accent); flex: none; }
 .perm-row .icon-bubble .i { width: 19px; height: 19px; }
 .perm-foot { display: flex; justify-content: flex-end; gap: 8px; }
+
+/* ---------------- extension toolbar icons + side panel ---------------- */
+#ext-bar { display: flex; align-items: center; gap: 2px; flex: none; margin-left: 4px; }
+#ext-bar.has { margin-right: 2px; }
+.ext-btn { width: 30px; height: 30px; display: grid; place-items: center; border-radius: var(--radius-sm); border: 0; background: none; color: var(--dim); cursor: pointer; opacity: .9; transition: background .12s, transform .12s, opacity .12s; animation: extIn .35s var(--ease) both; }
+.ext-btn:hover { background: var(--hover); opacity: 1; }
+.ext-btn:active { transform: scale(.9); }
+.ext-btn.active { background: var(--accent-soft); }
+.ext-btn.active::after { content: ""; position: absolute; }
+.ext-btn img { width: 17px; height: 17px; object-fit: contain; }
+.ext-btn .i { width: 17px; height: 17px; }
+@keyframes extIn { from { opacity: 0; transform: scale(.6); } }
+@media (max-width: 760px) { #ext-bar { display: none; } }
+
+#extpanel { display: none; width: var(--ext-w, 400px); flex: none; flex-direction: column; position: relative; min-width: 300px; max-width: 60vw; }
+body.extpanel #extpanel { display: flex; }
+body.flat #extpanel { border-left: 1px solid var(--border); background: var(--surface-2); }
+#ext-resize { position: absolute; left: calc(-1 * var(--inset) - 3px); width: calc(var(--inset) + 6px); top: 0; bottom: 0; cursor: col-resize; z-index: 2; }
+#extpanel { animation: panelIn .3s var(--ease); }

@@ -34,7 +34,7 @@ Most browsers assume you have plenty of memory. Mica is designed for PCs with **
 | 📷 **Screenshots** | Visible area or the full page, saved and copied to the clipboard. |
 | ⧉ **Picture-in-picture** | A small *Pop out* button appears at the top of videos. |
 | 🛠 **Inspect** | Chromium developer tools docked in a side panel: `F12`, `Ctrl+Shift+I`, or right-click → Inspect. |
-| 🧩 **Extensions** | Install from the Chrome Web Store (*Add to Mica*), or bring yours over from Chrome, Edge, Brave, Vivaldi or Opera. |
+| 🧩 **Extensions** | Install from the Chrome Web Store (*Add to Mica*), or bring yours over from Chrome, Edge, Brave, Vivaldi or Opera. Their icons sit next to the address bar: click for the popup, or open ChatGPT, Claude and other side-panel extensions in a panel beside the page. |
 | 🏠 **New tab page** | Clock, weather (no account needed), shortcuts, your own wallpaper. |
 | ⭐ **Bookmarks & history** | A bookmarks bar with folders, and one-click import of bookmarks, history and extensions from Chrome, Edge, Brave, Vivaldi or Opera (any profile). |
 | 🧭 **Welcome tour** | Pick your look, layout and speed settings, then a quick guided tour of the real buttons. |

@@ -111,23 +111,29 @@ namespace Mica
             var list = new List<object>();
             foreach (var e in await profile.GetBrowserExtensionsAsync())
             {
-                string popup = null, options = null, icon = null, name = e.Name, version = "", description = "";
+                string popup = null, options = null, icon = null, side = null, name = e.Name, version = "", description = "";
+                bool hasAction = false;
                 if (Index.TryGetValue(e.Id, out var f) && f is string folder)
                 {
                     try
                     {
                         var m = J.Obj(File.ReadAllText(Path.Combine(folder, "manifest.json")));
-                        popup = (m.Sub("action") ?? m.Sub("browser_action") ?? m.Sub("page_action")).Str("default_popup");
+                        var action = m.Sub("action") ?? m.Sub("browser_action") ?? m.Sub("page_action");
+                        hasAction = action != null;
+                        popup = action.Str("default_popup");
                         options = m.Sub("options_ui").Str("page") ?? m.Str("options_page");
                         version = m.Str("version", "");
                         description = Localize(folder, m, m.Str("description", ""));
                         name = Localize(folder, m, name);
-                        var icons = m.Sub("icons");
-                        if (icons != null)
-                        {
-                            var best = icons.OrderByDescending(kv => int.TryParse(kv.Key, out var n) ? n : 0).FirstOrDefault();
-                            if (best.Value is string ip) icon = "chrome-extension://" + e.Id + "/" + ip.TrimStart('/');
-                        }
+                        // best icon: prefer the action's icon, else the largest manifest icon.
+                        // Mica's own pages can't load chrome-extension:// URLs, so inline the file as a data URL.
+                        var iconPath = PickIcon(action.Sub("default_icon")) ?? PickIcon(m.Sub("icons"));
+                        icon = IconDataUrl(folder, iconPath);
+                        // side panel: the manifest's path, or a conventionally-named page the extension ships
+                        side = m.Sub("side_panel").Str("default_path");
+                        if (side == null && (hasAction || HasPerm(m, "sidePanel")))
+                            foreach (var cand in new[] { "sidepanel.html", "side_panel.html", "sidebar.html", "panel.html", "sidePanel.html" })
+                                if (File.Exists(Path.Combine(folder, cand))) { side = cand; break; }
                     }
                     catch { }
                 }
@@ -139,8 +145,10 @@ namespace Mica
                     version,
                     description,
                     icon,
+                    hasAction,
                     popup = popup != null ? "chrome-extension://" + e.Id + "/" + popup.TrimStart('/') : null,
                     options = options != null ? "chrome-extension://" + e.Id + "/" + options.TrimStart('/') : null,
+                    sidePanel = side != null ? "chrome-extension://" + e.Id + "/" + side.TrimStart('/') : null,
                 });
             }
             return list;
@@ -176,6 +184,38 @@ namespace Mica
                 if (hit.Value is Dictionary<string, object> d) return d.Str("message", s);
             }
             return s;
+        }
+
+        static string IconDataUrl(string folder, string relPath)
+        {
+            if (string.IsNullOrEmpty(relPath)) return null;
+            try
+            {
+                var p = Path.Combine(folder, relPath.TrimStart('/').Replace('/', '\\'));
+                if (!File.Exists(p)) return null;
+                var ext = Path.GetExtension(p).ToLowerInvariant();
+                var mime = ext == ".svg" ? "image/svg+xml" : ext == ".jpg" || ext == ".jpeg" ? "image/jpeg" : ext == ".gif" ? "image/gif" : "image/png";
+                var bytes = File.ReadAllBytes(p);
+                if (bytes.Length > 512 * 1024) return null;   // keep the toolbar message small
+                return "data:" + mime + ";base64," + Convert.ToBase64String(bytes);
+            }
+            catch { return null; }
+        }
+
+        static string PickIcon(Dictionary<string, object> icons)
+        {
+            if (icons == null) return null;
+            // the biggest one that isn't absurdly large, so toolbar icons stay crisp
+            var best = icons.Where(kv => kv.Value is string).OrderBy(kv => int.TryParse(kv.Key, out var n) ? n : 0).LastOrDefault(kv => (int.TryParse(kv.Key, out var n) ? n : 999) <= 64);
+            if (best.Value is string s) return s;
+            return icons.Values.OfType<string>().FirstOrDefault();
+        }
+
+        static bool HasPerm(Dictionary<string, object> m, string perm)
+        {
+            if (m.TryGetValue("permissions", out var p) && p is object[] arr)
+                return arr.OfType<string>().Any(x => x == perm);
+            return false;
         }
 
         static string Sanitize(string s) => Regex.Replace(s, @"[^\w\-]", "_");
