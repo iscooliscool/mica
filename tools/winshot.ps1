@@ -1,5 +1,5 @@
 # Test helper: screenshot of the Mica window (brings it to the front first).
-param([string]$Out = "shot.png", [string]$Title = "Mica")
+param([string]$Out = "shot.png", [string]$Name = "Mica")
 Add-Type -AssemblyName System.Drawing
 Add-Type @"
 using System; using System.Runtime.InteropServices;
@@ -12,7 +12,7 @@ public static class W {
 }
 "@
 [W]::SetProcessDPIAware() | Out-Null
-$p = Get-Process Mica -ErrorAction SilentlyContinue | Where-Object { $_.MainWindowHandle -ne 0 } | Select-Object -First 1
+$p = Get-Process $Name -ErrorAction SilentlyContinue | Where-Object { $_.MainWindowHandle -ne 0 } | Select-Object -First 1
 if (-not $p) { Write-Error "Mica window not found"; exit 1 }
 $h = $p.MainWindowHandle
 # (no restore: keep maximized state)

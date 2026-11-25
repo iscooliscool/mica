@@ -44,13 +44,15 @@ Most browsers assume you have plenty of memory. Mica is designed for PCs with **
   <img src="docs/screenshot-private.png" width="49%" alt="Private window">
 </p>
 
+<p align="center"><img src="docs/installer.png" width="70%" alt="Mica's installer, showing a tip while it installs"></p>
+
 ## Requirements
 
 - Windows 10 or 11 (32-bit, 64-bit or ARM)
 - .NET Framework 4.6.2 or newer (built into every Windows 10 since 2016, and Windows 11)
 - Microsoft WebView2 Runtime (already on almost every Windows 10/11 PC; the installer adds it if it's missing)
 
-No admin rights needed. Mica installs just for the current user.
+No admin rights needed. Mica installs just for the current user, with its own animated installer that shows tips while it works.
 
 ## Keyboard shortcuts
 
@@ -71,7 +73,7 @@ No admin rights needed. Mica installs just for the current user.
 
 ## Building from source
 
-You need the [.NET SDK](https://dotnet.microsoft.com/download) (8 or newer) and [Inno Setup 6](https://jrsoftware.org/isinfo.php).
+You need the [.NET SDK](https://dotnet.microsoft.com/download) (8 or newer).
 
 ```powershell
 .\build.ps1                 # builds Mica and dist\Mica-<version>-Setup.exe
@@ -84,7 +86,7 @@ How it's put together:
 - `src/Mica/ui/chrome.*`: the browser interface (tabs, toolbar, menus, welcome tour) as plain HTML/CSS/JS.
 - `src/Mica/ui/pages/`: Mica's own pages: new tab, settings, history and bookmarks.
 - `src/Mica/ui/shared/themes.js`: every theme is a set of CSS variables, shared by the interface and the pages.
-- `installer/mica.iss`: the installer.
+- `src/MicaSetup/`: Mica's own installer and uninstaller. It's one self-contained `.exe` with a custom animated interface (`ui/setup.html`), install tips, a silent mode for updates, and per-user install (no admin).
 
 Tip: set `MICA_DATA` to a folder to use a separate profile (handy for testing, or a portable USB setup).
 
