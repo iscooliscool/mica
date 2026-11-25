@@ -456,7 +456,6 @@ body.devtools #devpanel { display: flex; }
 #btn-back:hover .i { transform: translateX(-2px); }
 #btn-forward:hover .i { transform: translateX(2px); }
 .newtab-btn:hover .i, .side-new:hover .i { transform: rotate(90deg); }
-#btn-menu:hover .i { transform: rotate(90deg); }
 .omni-btn.pop svg { animation: starPop .45s var(--ease); }
 #omnibox { transition: border-color .15s, box-shadow .25s var(--ease), background .2s, transform .2s var(--ease); }
 #omnibox.focus { transform: translateY(-1px); }

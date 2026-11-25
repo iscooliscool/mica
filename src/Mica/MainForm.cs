@@ -330,7 +330,9 @@ namespace Mica
         {
             var t = new BrowserTab { Url = url ?? "mica://newtab" };
             if (t.Url == "mica://newtab") t.Title = "New tab";
-            int idx = after != null ? tabs.IndexOf(after) + 1 : (active != null ? tabs.IndexOf(active) + 1 : tabs.Count);
+            // + and Ctrl+T append to the end, like Chrome. Links opened from a page are placed next to
+            // their parent by NewWindowRequested; callers that want adjacency pass `after`.
+            int idx = after != null ? tabs.IndexOf(after) + 1 : tabs.Count;
             tabs.Insert(Math.Max(0, Math.Min(idx, tabs.Count)), t);
             if (activate) Activate(t); else { await Wake(t); SendState(); }
             return t;
@@ -463,6 +465,7 @@ namespace Mica
         {
             if (t == null) return;
             if (splitA != null && t != splitA && t != splitB) { splitA = splitB = null; }
+            if (t != active) CloseExtPopup();   // switching tabs closes an extension popup, like Chrome
             active = t;
             t.LastActive = DateTime.Now;
             if (t.View == null) _ = Wake(t);

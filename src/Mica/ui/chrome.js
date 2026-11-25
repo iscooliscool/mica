@@ -725,9 +725,11 @@ function closeOverlay() {
 }
 async function onBackdrop(shots) {
   for (const s of shots) {
-    const el = s.key === 'b' ? $('#pane-b') : s.key === 'ai' ? $('#ai-host') : $('#pane-a');
+    const el = { b: '#pane-b', ai: '#ai-host', ext: '#ext-host', dev: '#dev-host' }[s.key];
+    const target = $(el || '#pane-a');
+    if (!target) continue;
     try { const img = new Image(); img.src = s.src; await img.decode(); } catch { }
-    el.style.backgroundImage = 'url("' + s.src + '")';
+    target.style.backgroundImage = 'url("' + s.src + '")';
   }
   requestAnimationFrame(() => { if (overlayUp) host({ cmd: 'raise' }); });
 }

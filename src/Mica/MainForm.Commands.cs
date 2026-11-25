@@ -492,6 +492,9 @@ namespace Mica
                 if (splitA != null) { await Snap("a", splitA.View); await Snap("b", splitB.View); }
                 else await Snap("a", active?.View);
                 if (aiOpen) await Snap("ai", ai);
+                // every view the raised UI will cover needs a picture, or that area shows up blank
+                if (extOpen) await Snap("ext", extView);
+                if (devOpen) await Snap("dev", dev);
             }
             if (!overlay) return; // closed while we were capturing
             PostUi(new { type = "backdrop", shots });
@@ -501,6 +504,16 @@ namespace Mica
         //  Keyboard shortcuts (work no matter what has focus)
         // =====================================================================
         // Shortcuts only reach Mica when something inside the window has focus, so never leave it empty.
+        // Leaving the window (Alt+Tab, clicking another app) closes an extension popup, like Chrome.
+        protected override void OnDeactivate(EventArgs e)
+        {
+            base.OnDeactivate(e);
+            // Deferred and re-checked: removing a WebView2 briefly parks it in a hidden WinForms window,
+            // which deactivates this form for a moment — closing synchronously here re-entered the close
+            // while the popup was half-disposed and crashed WebView2.
+            if (extPopup != null) BeginInvoke(new Action(() => { if (ActiveForm != this) CloseExtPopup("deactivate"); }));
+        }
+
         protected override void OnActivated(EventArgs e)
         {
             base.OnActivated(e);

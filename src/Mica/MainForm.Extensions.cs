@@ -19,8 +19,10 @@ namespace Mica
 
         WebView2 extPopup;             // a floating action popup, like Chrome
         string extPopupId;
-        Timer popupWatch;
-        bool popupHasFocus, popupEverFocused;
+        Rectangle popupAnchor;         // the toolbar icon it hangs from, in client device pixels
+        IntPtr popupHook;              // low-level mouse hook, installed only while a popup is open
+        Timer popupSizer;              // re-measures the open popup so it follows its content
+        Native.LowLevelMouseProc popupHookProc;
 
         // Send the enabled extensions to the toolbar.
         async Task SendExtToolbar()
@@ -51,6 +53,7 @@ namespace Mica
 
         async Task ExtAction(string id, Rectangle anchor)
         {
+            DebugLog("ExtAction " + id + " current=" + extPopupId);
             if (extPopupId == id) { CloseExtPopup(); return; }   // clicking the same icon closes it
             CloseExtPopup();
             var list = await Extensions.List(Profile);
@@ -123,45 +126,29 @@ namespace Mica
             c.Settings.AreDefaultContextMenusEnabled = false;
             c.NewWindowRequested += (s, e) => { e.Handled = true; _ = NewTab(e.Uri); };
             HookDownloads(c);
-            // the popup measures itself and asks Mica to size to its content, like Chrome
+            // Chrome draws popups without the page's own outer scrollbars and sizes the window to the content
+            // instead. Hide the root scrollbars (inner scroll areas are untouched; the wheel still scrolls).
             await c.AddScriptToExecuteOnDocumentCreatedAsync(
-                "(function(){function send(){try{var d=document.documentElement,b=document.body;if(!b)return;" +
-                "var w=Math.max(b.scrollWidth,d.scrollWidth,b.offsetWidth),h=Math.max(b.scrollHeight,d.scrollHeight,b.offsetHeight);" +
-                "chrome.webview.postMessage(JSON.stringify({__micaPopup:1,w:w,h:h}));}catch(e){}}" +
-                "window.addEventListener('load',function(){send();setTimeout(send,120);setTimeout(send,400);});" +
-                "new ResizeObserver(send).observe(document.documentElement);document.addEventListener('DOMContentLoaded',send);})();");
-            c.WebMessageReceived += (s, e) =>
-            {
-                try
-                {
-                    var m = J.Obj(e.TryGetWebMessageAsString());
-                    if (!m.Bool("__micaPopup")) return;
-                    SizePopup(anchor, m.Int("w", 360), m.Int("h", 480));
-                }
-                catch { }
-            };
-            // Close when focus leaves the popup (clicking the page or anywhere else), like Chrome.
-            // Focus bounces around for a moment right after opening — the click that opened the popup is
-            // still being handled by the toolbar — so watch the focus state instead of closing on the
-            // first LostFocus, and only once the popup has actually held focus.
+                "(function(){function add(){try{var s=document.createElement('style');" +
+                "s.textContent='html::-webkit-scrollbar,body::-webkit-scrollbar{width:0!important;height:0!important;display:none!important}';" +
+                "(document.head||document.documentElement).appendChild(s);}catch(e){}}" +
+                "if(document.documentElement)add();else document.addEventListener('readystatechange',add,{once:true});})();");
+            // Size to the content. Mica measures the page itself (ExecuteScriptAsync works on every
+            // extension page; a postMessage from inside the page never reached Mica, so popups were stuck
+            // at their starting size). Re-measured while open, so popups that grow after loading follow.
+            popupSizer = new Timer { Interval = 250 };
+            popupSizer.Tick += async (s, e) => { if (extPopup == v) await MeasurePopup(v); else { ((Timer)s).Stop(); ((Timer)s).Dispose(); } };
+            popupSizer.Start();
+            c.DOMContentLoaded += async (s, e) => { if (extPopup == v) await MeasurePopup(v); };
+            // The extension called window.close() (many popups do this after acting) — close like Chrome.
+            c.WindowCloseRequested += (s, e) => BeginInvoke(new Action(() => { if (extPopup == v) CloseExtPopup("window.close"); }));
+            // Close on any click outside the popup, like Chrome. This used to watch keyboard focus, but
+            // focus bounces between the toolbar and the popup right after the opening click, which made
+            // popups close by themselves depending on how fast they loaded. Clicks are unambiguous.
             var ctl = controllerField?.GetValue(v) as CoreWebView2Controller;
-            if (ctl != null)
-            {
-                ctl.GotFocus += (s, e) => { popupHasFocus = true; popupEverFocused = true; };
-                ctl.LostFocus += (s, e) => popupHasFocus = false;
-            }
-            popupHasFocus = popupEverFocused = false;
-            var opened = DateTime.UtcNow;
-            popupWatch = new Timer { Interval = 200 };
-            popupWatch.Tick += (s, e) =>
-            {
-                if (extPopup != v) { StopPopupWatch(); return; }
-                if (!popupEverFocused || popupHasFocus) return;
-                if ((DateTime.UtcNow - opened).TotalMilliseconds < 700) return;
-                CloseExtPopup();
-            };
-            popupWatch.Start();
-            SizePopup(anchor, 360, 480);
+            popupAnchor = anchor;
+            StartPopupHook();
+            SizePopup(anchor, 240, 40);   // grows to the content as soon as it's measured
             c.NavigationCompleted += (s, e) =>
             {
                 // make sure focus really lands in the popup once it has something to show
@@ -173,34 +160,100 @@ namespace Mica
             v.Focus();
         }
 
+        // The popup's preferred size in CSS pixels: its width as if nothing constrained it (Chrome lays
+        // popups out at their natural width), and its full content height at that width.
+        const string MeasureJs =
+            "(function(){var d=document.documentElement,b=document.body;if(!d||!b)return null;" +
+            "var o=d.style.width;d.style.width='max-content';" +
+            "var w=Math.ceil(Math.max(d.getBoundingClientRect().width,b.getBoundingClientRect().width));d.style.width=o;" +
+            "var h=Math.ceil(Math.max(d.scrollHeight,b.scrollHeight,b.getBoundingClientRect().height));" +
+            "return w+','+h;})()";
+
+        async Task MeasurePopup(WebView2 v)
+        {
+            try
+            {
+                var r = await v.CoreWebView2.ExecuteScriptAsync(MeasureJs);
+                if (extPopup != v || r == null || r == "null") return;
+                var p = r.Trim('"').Split(',');
+                int w = int.Parse(p[0]), h = int.Parse(p[1]);
+                if (w <= 0 || h <= 0) return;
+                SizePopup(popupAnchor, w, h);
+            }
+            catch { }
+        }
+
         void SizePopup(Rectangle anchor, int w, int h)
         {
             if (extPopup == null) return;
             double scale;
             using (var g = CreateGraphics()) scale = g.DpiX / 96.0;
-            w = Math.Min(Math.Max(w + 2, 240), 760);
-            h = Math.Min(Math.Max(h + 2, 80), 600);
+            // Chrome's limits: at least 25 px, at most 800 × 600.
+            w = Math.Min(Math.Max(w, 25), 800);
+            h = Math.Min(Math.Max(h, 25), 600);
             var wp = (int)Math.Round(w * scale);
             var hp = (int)Math.Round(h * scale);
             // anchor is already in device pixels (from the UI). Hang the popup under its right edge.
             int x = Math.Min(anchor.Right - wp, ClientSize.Width - wp - 6);
             int y = Math.Min(anchor.Bottom + 4, ClientSize.Height - hp - 6);
             x = Math.Max(6, x); y = Math.Max(6, y);
-            extPopup.Bounds = new Rectangle(x, y, wp, hp);
+            var b = new Rectangle(x, y, wp, hp);
+            if (extPopup.Bounds == b) return;
+            extPopup.Bounds = b;
             extPopup.BringToFront();
         }
 
-        void StopPopupWatch()
+        void StartPopupHook()
         {
-            if (popupWatch == null) return;
-            popupWatch.Stop(); popupWatch.Dispose(); popupWatch = null;
+            if (popupHook != IntPtr.Zero) return;
+            popupHookProc = PopupMouseHook;   // keep the delegate alive while the hook is installed
+            popupHook = Native.SetWindowsHookEx(Native.WH_MOUSE_LL, popupHookProc, Native.GetModuleHandle(null), 0);
         }
 
-        void CloseExtPopup()
+        void StopPopupHook()
         {
-            StopPopupWatch();
+            if (popupHook == IntPtr.Zero) return;
+            Native.UnhookWindowsHookEx(popupHook);
+            popupHook = IntPtr.Zero;
+        }
+
+        IntPtr PopupMouseHook(int nCode, IntPtr wParam, IntPtr lParam)
+        {
+            try
+            {
+                int msg = wParam.ToInt32();
+                if (nCode >= 0 && extPopup != null &&
+                    (msg == Native.WM_LBUTTONDOWN || msg == Native.WM_RBUTTONDOWN || msg == Native.WM_MBUTTONDOWN))
+                {
+                    var info = (Native.MSLLHOOKSTRUCT)System.Runtime.InteropServices.Marshal.PtrToStructure(lParam, typeof(Native.MSLLHOOKSTRUCT));
+                    var pt = new Point(info.x, info.y);
+                    var popupRect = extPopup.RectangleToScreen(extPopup.ClientRectangle);
+                    // A click on the popup's own toolbar icon is left to ExtAction, which toggles it closed.
+                    var iconRect = new Rectangle(PointToScreen(popupAnchor.Location), popupAnchor.Size);
+                    if (!popupRect.Contains(pt) && !iconRect.Contains(pt))
+                    {
+                        var v = extPopup;   // only close the popup that was open when the click happened
+                        BeginInvoke(new Action(() => { if (extPopup == v) CloseExtPopup("click outside"); }));
+                    }
+                }
+            }
+            catch { }
+            return Native.CallNextHookEx(popupHook, nCode, wParam, lParam);
+        }
+
+        void CloseExtPopup() => CloseExtPopup("other");
+        void CloseExtPopup(string why)
+        {
+            StopPopupHook();
+            if (popupSizer != null) { popupSizer.Stop(); popupSizer.Dispose(); popupSizer = null; }
             extPopupId = null;
-            if (extPopup != null) { Controls.Remove(extPopup); extPopup.Dispose(); extPopup = null; }
+            var v = extPopup;
+            if (v == null) return;
+            DebugLog("CloseExtPopup " + why);
+            extPopup = null;            // clear first: removing the control can re-enter this method
+            v.Visible = false;
+            Controls.Remove(v);
+            v.Dispose();
         }
 
         void LayoutExtras()
