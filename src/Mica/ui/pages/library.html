@@ -1,0 +1,121 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="color-scheme" content="light">
+<title>History</title>
+<link rel="icon" href="../img/mica-32.png">
+<link rel="stylesheet" href="../shared/page.css">
+<script src="../shared/icons.js"></script>
+<script src="../shared/themes.js"></script>
+<script src="../shared/page.js"></script>
+<style>
+  main { max-width: 860px; margin: 0 auto; padding: 34px 28px 80px; }
+  header { display: flex; align-items: center; gap: 14px; margin-bottom: 22px; flex-wrap: wrap; }
+  header h1 { margin: 0; font-size: 26px; letter-spacing: -.02em; flex: 1; }
+  .search { position: relative; width: 300px; }
+  .search .i { position: absolute; left: 11px; top: 10px; width: 17px; height: 17px; color: var(--dim); }
+  .search .input { width: 100%; padding-left: 36px; }
+  .day { font-size: 12px; font-weight: 700; text-transform: uppercase; letter-spacing: .06em; color: var(--dim); margin: 22px 4px 8px; }
+  .list { background: var(--surface-2); border: 1px solid var(--border); border-radius: var(--radius-lg); padding: 6px; }
+  body.glass .list { background: rgba(255,255,255,.66); backdrop-filter: blur(20px); }
+  .item { display: flex; align-items: center; gap: 14px; padding: 8px 10px; border-radius: var(--radius); cursor: pointer; }
+  .item:hover { background: var(--hover); }
+  .item .fav { width: 32px; height: 32px; border-radius: 9px; background: var(--hover); display: grid; place-items: center; flex: none; font-weight: 700; color: var(--accent); }
+  .item .fav img { width: 18px; height: 18px; }
+  .item .txt { flex: 1; min-width: 0; }
+  .item .tt { font-weight: 500; overflow: hidden; white-space: nowrap; text-overflow: ellipsis; }
+  .item .uu { color: var(--dim); font-size: 12.5px; overflow: hidden; white-space: nowrap; text-overflow: ellipsis; }
+  .item .time { color: var(--dim); font-size: 12.5px; flex: none; font-variant-numeric: tabular-nums; }
+  .item .icon-btn { opacity: 0; }
+  .item:hover .icon-btn { opacity: 1; }
+  .empty { text-align: center; color: var(--dim); padding: 60px 20px; }
+  .empty .i { width: 40px; height: 40px; margin-bottom: 10px; opacity: .6; }
+</style>
+</head>
+<body class="light">
+<main>
+  <header>
+    <h1 id="title">History</h1>
+    <div class="segmented" id="tabs"><button data-v="history">History</button><button data-v="bookmarks">Bookmarks</button></div>
+    <div class="search"><i data-icon="search"></i><input class="input" id="q" placeholder="Search"></div>
+    <button class="btn sm danger" id="clearAll">Clear history</button>
+  </header>
+  <div id="out"></div>
+</main>
+<script>
+const $ = s => document.querySelector(s);
+const esc = s => Mica.esc(s);
+let mode = location.hash === '#bookmarks' ? 'bookmarks' : 'history';
+let histList = [];
+
+function fav(url, title) {
+  try { return '<span class="fav"><img src="https://icons.duckduckgo.com/ip3/' + new URL(url).hostname + '.ico" alt="" onerror="this.outerHTML=\'' + esc((title || url || '?').trim()[0].toUpperCase()).replace(/'/g, '') + '\'"></span>'; }
+  catch { return '<span class="fav">?</span>'; }
+}
+function dayLabel(t) {
+  const d = new Date(t), today = new Date(); today.setHours(0, 0, 0, 0);
+  const diff = Math.round((today - new Date(d).setHours(0, 0, 0, 0)) / 864e5);
+  if (diff === 0) return 'Today';
+  if (diff === 1) return 'Yesterday';
+  return d.toLocaleDateString(undefined, { weekday: 'long', month: 'long', day: 'numeric' });
+}
+function item(x, isBm) {
+  const time = isBm ? '' : new Date(x.t).toLocaleTimeString(undefined, { hour: 'numeric', minute: '2-digit' });
+  return '<div class="item" data-url="' + esc(x.url) + '">' + fav(x.url, x.title) + '<div class="txt"><div class="tt">' + esc(x.title || x.url) + '</div><div class="uu">' + esc(x.url) + '</div></div>' +
+    '<span class="time">' + time + '</span><button class="icon-btn" data-rm="' + esc(x.url) + '" title="Remove">' + icon(isBm ? 'trash' : 'x') + '</button></div>';
+}
+function render() {
+  document.title = mode === 'bookmarks' ? 'Bookmarks' : 'History';
+  $('#title').textContent = document.title;
+  document.querySelectorAll('#tabs button').forEach(b => b.classList.toggle('on', b.dataset.v === mode));
+  $('#clearAll').style.display = mode === 'history' && histList.length ? '' : 'none';
+  const q = $('#q').value.trim().toLowerCase();
+  let html = '';
+  if (mode === 'bookmarks') {
+    const list = (Mica.bookmarks || []).filter(b => !q || (b.title + ' ' + b.url).toLowerCase().includes(q));
+    html = list.length ? '<div class="list">' + list.map(b => item(b, true)).join('') + '</div>'
+      : '<div class="empty">' + icon('star') + '<div>' + (q ? 'No bookmarks match.' : 'No bookmarks yet. Click the star in the address bar to add one.') + '</div></div>';
+  } else {
+    if (!histList.length) html = '<div class="empty">' + icon('history') + '<div>' + (Mica.incognito ? 'Private windows don\'t keep history.' : q ? 'Nothing matches.' : 'Pages you visit will show up here.') + '</div></div>';
+    let cur = '';
+    histList.forEach((h, i) => {
+      const d = dayLabel(h.t);
+      if (d !== cur) { html += (cur ? '</div>' : '') + '<div class="day">' + d + '</div><div class="list">'; cur = d; }
+      html += item(h, false);
+    });
+    if (cur) html += '</div>';
+  }
+  $('#out').innerHTML = html;
+}
+$('#out').addEventListener('click', e => {
+  const rm = e.target.closest('[data-rm]');
+  if (rm) {
+    e.stopPropagation();
+    if (mode === 'bookmarks') Mica.send({ cmd: 'removeBookmark', url: rm.dataset.rm });
+    else Mica.send({ cmd: 'deleteHistory', url: rm.dataset.rm });
+    return;
+  }
+  const it = e.target.closest('.item');
+  if (!it) return;
+  if (e.ctrlKey) Mica.send({ cmd: 'openUrl', url: it.dataset.url, background: true });
+  else location.href = it.dataset.url;
+});
+$('#out').addEventListener('auxclick', e => { const it = e.target.closest('.item'); if (it && e.button === 1) Mica.send({ cmd: 'openUrl', url: it.dataset.url, background: true }); });
+document.querySelectorAll('#tabs button').forEach(b => b.addEventListener('click', () => { mode = b.dataset.v; location.hash = mode; load(); }));
+let t;
+$('#q').addEventListener('input', () => { clearTimeout(t); t = setTimeout(load, 150); });
+$('#clearAll').addEventListener('click', () => { if (confirm('Clear all of your history?')) Mica.send({ cmd: 'deleteHistory' }); });
+window.addEventListener('hashchange', () => { mode = location.hash === '#bookmarks' ? 'bookmarks' : 'history'; load(); });
+function load() {
+  if (mode === 'history') Mica.send({ cmd: 'history', q: $('#q').value.trim(), limit: 400 });
+  else render();
+}
+Mica.on('init', load);
+Mica.on('history', m => { histList = m.list || []; render(); });
+Mica.on('historyChanged', load);
+Mica.on('bookmarks', () => { if (mode === 'bookmarks') render(); });
+Mica.on('settings', render);
+</script>
+</body>
+</html>

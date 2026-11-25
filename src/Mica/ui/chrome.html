@@ -1,0 +1,116 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="color-scheme" content="light">
+<title>Mica</title>
+<link rel="icon" href="img/mica-32.png">
+<link rel="stylesheet" href="chrome.css">
+<script src="shared/icons.js"></script>
+<script src="shared/themes.js"></script>
+</head>
+<body class="top light">
+  <div id="art"></div>
+
+  <div id="resize-top" class="rz" data-edge="top"></div>
+  <div id="resize-tl" class="rz" data-edge="topleft"></div>
+  <div id="resize-tr" class="rz" data-edge="topright"></div>
+
+  <div id="app">
+    <!-- Side mode: vertical tabs -->
+    <aside id="sidebar" class="drag">
+      <div class="side-head drag">
+        <img src="img/mica-64.png" alt="" class="brand-logo">
+        <span class="brand-name">Mica</span>
+        <span class="private-chip" title="Private window"><i data-icon="incognito"></i>Private</span>
+      </div>
+      <button id="vnewtab" class="side-new" title="New tab (Ctrl+T)"><i data-icon="plus"></i><span>New tab</span></button>
+      <div id="vtabs" class="tablist vertical drag"></div>
+    </aside>
+
+    <div id="col">
+      <!-- Top mode: tab strip in the title bar -->
+      <header id="titlebar" class="drag">
+        <div id="htabs" class="tablist horizontal"></div>
+        <button id="hnewtab" class="newtab-btn" title="New tab (Ctrl+T)"><i data-icon="plus"></i></button>
+        <div class="drag-fill drag"></div>
+      </header>
+
+      <nav id="toolbar" class="drag">
+        <div class="tb-group">
+          <button class="tb" data-cmd="back" id="btn-back" title="Back (Alt+Left)"><i data-icon="back"></i></button>
+          <button class="tb" data-cmd="forward" id="btn-forward" title="Forward (Alt+Right)"><i data-icon="forward"></i></button>
+          <button class="tb" data-cmd="reload" id="btn-reload" title="Reload (F5)"><i data-icon="reload"></i></button>
+          <button class="tb hide-narrow" data-cmd="home" id="btn-home" title="Home"><i data-icon="home"></i></button>
+        </div>
+
+        <div id="omnibox" class="nodrag">
+          <span id="site-icon" class="site-icon"></span>
+          <input id="address" spellcheck="false" autocomplete="off" placeholder="Search Google or type a URL">
+          <button class="omni-btn" id="btn-star" title="Bookmark this page (Ctrl+D)"><i data-icon="star"></i></button>
+        </div>
+
+        <div class="tb-group right">
+          <div id="toast" class="toast" role="status"></div>
+          <button id="update-pill" class="pill accent" title="A new version of Mica is ready"><i data-icon="update"></i><span></span></button>
+          <span class="private-chip top-only" title="Private window: nothing is saved"><i data-icon="incognito"></i>Private</span>
+          <button id="mem-pill" class="pill" title="Memory Mica is using"><i data-icon="chip"></i><span>-- MB</span></button>
+          <button class="tb" id="btn-split" data-cmd="splitMenu" title="Split screen"><i data-icon="split"></i></button>
+          <button class="tb" id="btn-ai" data-cmd="ai" title="AI helper (Ctrl+Shift+A)"><i data-icon="sparkle"></i></button>
+          <button class="tb" id="btn-menu" data-cmd="menu" title="Menu"><i data-icon="dots"></i></button>
+        </div>
+      </nav>
+
+      <div id="bookmarks-bar" class="drag"></div>
+
+      <div id="body">
+        <main id="stage">
+          <div id="splitbar">
+            <button class="split-label" id="split-a"></button>
+            <div class="split-actions">
+              <button class="tb sm" data-cmd="swapSplit" title="Swap sides"><i data-icon="swap"></i></button>
+              <button class="tb sm" data-cmd="unsplit" title="Close split screen"><i data-icon="x"></i></button>
+            </div>
+            <button class="split-label" id="split-b"></button>
+          </div>
+          <div id="panes">
+            <div id="pane-a" class="pane"><div class="pane-empty"></div></div>
+            <div id="divider" title="Drag to resize"></div>
+            <div id="pane-b" class="pane"></div>
+          </div>
+        </main>
+
+        <section id="aipanel">
+          <div id="ai-resize" title="Drag to resize"></div>
+          <div class="ai-head">
+            <div class="segmented" id="ai-provider">
+              <button data-provider="duck">Duck.ai</button>
+              <button data-provider="chatgpt">ChatGPT</button>
+            </div>
+            <div class="ai-actions">
+              <button class="tb sm" data-cmd="summarize" title="Summarize this page"><i data-icon="doc"></i></button>
+              <button class="tb sm" data-cmd="aiClose" title="Close AI panel"><i data-icon="x"></i></button>
+            </div>
+          </div>
+          <div id="ai-host" class="pane"></div>
+        </section>
+      </div>
+    </div>
+
+    <div id="winctl" class="nodrag">
+      <button data-cmd="min" title="Minimize"><svg viewBox="0 0 10 10"><path d="M0 5h10"/></svg></button>
+      <button data-cmd="max" title="Maximize" id="btn-max"><svg viewBox="0 0 10 10" class="ico-max"><rect x=".5" y=".5" width="9" height="9" rx="1"/></svg><svg viewBox="0 0 10 10" class="ico-restore"><rect x=".5" y="2.5" width="7" height="7" rx="1"/><path d="M2.5 2.5V1.5a1 1 0 0 1 1-1h5a1 1 0 0 1 1 1v5a1 1 0 0 1-1 1h-1"/></svg></button>
+      <button data-cmd="close" title="Close" class="close"><svg viewBox="0 0 10 10"><path d="M0 0l10 10M10 0L0 10"/></svg></button>
+    </div>
+  </div>
+
+  <!-- Everything below draws over the page (menus, suggestions, tour). -->
+  <div id="overlay">
+    <div id="shots"></div>
+    <div id="scrim"></div>
+    <div id="layer"></div>
+  </div>
+
+  <script src="chrome.js"></script>
+</body>
+</html>

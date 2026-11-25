@@ -1,0 +1,284 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="color-scheme" content="light">
+<title>New tab</title>
+<link rel="icon" href="../img/mica-32.png">
+<link rel="stylesheet" href="../shared/page.css">
+<script src="../shared/icons.js"></script>
+<script src="../shared/themes.js"></script>
+<script src="../shared/page.js"></script>
+<style>
+  html, body { height: 100%; overflow: hidden; }
+  body { background: var(--page); }
+  #bg { position: fixed; inset: 0; background: var(--art), var(--bg); }
+  #wall { position: fixed; inset: 0; background: center / cover no-repeat; opacity: 0; transition: opacity .5s; }
+  #wall.on { opacity: 1; }
+  #dim { position: fixed; inset: 0; background: #000; opacity: 0; pointer-events: none; }
+  body.has-wall { --on-wall: #fff; }
+  main { position: relative; height: 100%; display: flex; flex-direction: column; align-items: center; padding: 0 24px; }
+  .spacer-top { flex: 0 1 17vh; min-height: 24px; }
+  #clock { font-size: clamp(56px, 9vw, 92px); font-weight: 300; letter-spacing: -.035em; line-height: 1; font-variant-numeric: tabular-nums; }
+  #clock .ampm { font-size: .28em; font-weight: 500; letter-spacing: 0; margin-left: 8px; color: var(--dim); }
+  #meta { display: flex; align-items: center; gap: 14px; margin-top: 12px; color: var(--dim); font-size: 15px; font-weight: 500; min-height: 30px; }
+  #weather { display: inline-flex; align-items: center; gap: 7px; padding: 3px 12px 3px 9px; border-radius: 99px; background: var(--hover); color: var(--text); border: 0; cursor: pointer; font-weight: 600; }
+  #weather .i { width: 18px; height: 18px; }
+  #weather:hover { background: var(--accent-soft); }
+  body.has-wall #clock, body.has-wall #meta { color: #fff; text-shadow: 0 2px 20px rgba(0,0,0,.35); }
+  body.has-wall #clock .ampm, body.has-wall #meta { color: rgba(255,255,255,.85); }
+  body.has-wall #weather { background: rgba(255,255,255,.18); color: #fff; backdrop-filter: blur(12px); }
+
+  form#search { width: min(640px, 100%); margin-top: 34px; position: relative; }
+  #q {
+    width: 100%; height: 54px; border-radius: 99px; border: 1px solid var(--border); background: var(--surface-2);
+    padding: 0 22px 0 54px; font-size: 16px; outline: 0; box-shadow: 0 8px 30px rgba(10,14,30,.07);
+    transition: box-shadow .2s, border-color .2s;
+  }
+  #q:focus { border-color: var(--accent); box-shadow: 0 0 0 4px var(--accent-soft), 0 8px 30px rgba(10,14,30,.08); }
+  form#search > .i { position: absolute; left: 20px; top: 50%; margin-top: -10px; width: 20px; height: 20px; color: var(--dim); }
+  body.glass #q, body.has-wall #q { background: rgba(255,255,255,.72); backdrop-filter: blur(20px) saturate(170%); border-color: rgba(255,255,255,.8); color: #121628; }
+  body.glass #q::placeholder, body.has-wall #q::placeholder { color: #4c5375; }
+  body.glow #q:focus { box-shadow: 0 0 0 1px var(--accent), 0 0 34px rgba(var(--accent-rgb), .35); }
+
+  #tiles { display: grid; grid-template-columns: repeat(auto-fill, 104px); justify-content: center; gap: 8px; width: min(760px, 100%); margin-top: 30px; }
+  .tile { position: relative; display: flex; flex-direction: column; align-items: center; gap: 10px; padding: 14px 6px 10px; border-radius: calc(var(--radius) + 4px); text-decoration: none; color: var(--text); cursor: pointer; transition: background .15s, transform .15s; }
+  .tile:hover { background: var(--hover); transform: translateY(-2px); }
+  .tile .ic { width: 52px; height: 52px; border-radius: 50%; background: var(--surface-2); display: grid; place-items: center; box-shadow: 0 0 0 1px var(--border), 0 4px 14px rgba(10,14,30,.06); overflow: hidden; }
+  .tile .ic img { width: 26px; height: 26px; }
+  .tile .ic b { font-size: 20px; color: var(--accent); }
+  .tile .nm { font-size: 12.5px; font-weight: 500; max-width: 92px; overflow: hidden; white-space: nowrap; text-overflow: ellipsis; }
+  .tile .rm { position: absolute; top: 4px; right: 8px; width: 22px; height: 22px; border-radius: 50%; border: 0; background: var(--surface-2); box-shadow: 0 0 0 1px var(--border); display: none; place-items: center; color: var(--dim); cursor: pointer; }
+  .tile .rm .i { width: 12px; height: 12px; }
+  .tile:hover .rm { display: grid; }
+  .tile.add .ic { background: transparent; box-shadow: inset 0 0 0 1.5px var(--border); color: var(--dim); }
+  body.has-wall .tile { color: #fff; text-shadow: 0 1px 8px rgba(0,0,0,.4); }
+  body.has-wall .tile:hover { background: rgba(255,255,255,.14); }
+  body.glass .tile .ic { background: rgba(255,255,255,.6); backdrop-filter: blur(16px); }
+
+  #customize { position: fixed; right: 18px; bottom: 18px; }
+  body.has-wall #customize .btn { background: rgba(255,255,255,.2); color: #fff; border-color: rgba(255,255,255,.3); backdrop-filter: blur(14px); }
+
+  .sheet { position: fixed; right: 18px; bottom: 66px; width: 340px; padding: 18px; border-radius: calc(var(--radius-lg) + 4px); background: var(--surface-2); border: 1px solid var(--border); box-shadow: 0 20px 60px rgba(0,0,0,.22); animation: up .2s var(--ease); max-height: calc(100vh - 90px); overflow: auto; }
+  body.glass .sheet, body.glass .dlg { background: rgba(255,255,255,.78); backdrop-filter: blur(28px) saturate(180%); }
+  @keyframes up { from { opacity: 0; transform: translateY(8px); } }
+  .sheet h3 { margin: 0 0 12px; font-size: 15px; }
+  .row { display: flex; align-items: center; justify-content: space-between; gap: 12px; padding: 9px 0; }
+  .row + .row { border-top: 1px solid var(--border); }
+  .row .lbl { font-weight: 500; }
+  .row .sub { color: var(--dim); font-size: 12.5px; }
+  .city-results { display: flex; flex-direction: column; margin-top: 6px; }
+  .city-results button { text-align: left; border: 0; background: transparent; padding: 7px 10px; border-radius: var(--radius-sm); cursor: pointer; }
+  .city-results button:hover { background: var(--hover); }
+  .city-results small { color: var(--dim); }
+
+  .dlg-wrap { position: fixed; inset: 0; background: rgba(8,10,20,.35); display: grid; place-items: center; animation: fd .15s; }
+  @keyframes fd { from { opacity: 0; } }
+  .dlg { width: min(400px, 92vw); padding: 24px; border-radius: calc(var(--radius-lg) + 6px); background: var(--surface-2); box-shadow: 0 24px 70px rgba(0,0,0,.3); display: flex; flex-direction: column; gap: 12px; }
+  .dlg h3 { margin: 0 0 4px; font-size: 18px; }
+  .dlg .acts { display: flex; justify-content: flex-end; gap: 8px; margin-top: 6px; }
+
+  #private { display: none; max-width: 560px; text-align: center; margin-top: 22px; }
+  #private .badge { width: 72px; height: 72px; border-radius: 22px; display: grid; place-items: center; margin: 0 auto 18px; background: var(--accent-soft); color: var(--accent); }
+  #private .badge .i { width: 38px; height: 38px; }
+  #private h1 { font-size: 28px; margin: 0 0 8px; letter-spacing: -.02em; }
+  #private p { color: var(--dim); margin: 0 0 6px; }
+  #private ul { text-align: left; display: inline-block; color: var(--dim); margin: 14px 0 0; padding-left: 20px; line-height: 1.8; }
+  body.incognito #private { display: block; }
+  body.incognito #clock, body.incognito #meta, body.incognito #tiles, body.incognito #customize, body.incognito .spacer-top { display: none; }
+  body.incognito main { justify-content: center; }
+  body.incognito form#search { order: 2; }
+</style>
+</head>
+<body class="light">
+<div id="bg"></div><div id="wall"></div><div id="dim"></div>
+<main>
+  <div class="spacer-top"></div>
+  <div id="private">
+    <div class="badge"><i data-icon="incognito"></i></div>
+    <h1>You're browsing privately</h1>
+    <p>Mica won't save your history, cookies or form data from this window.</p>
+    <ul>
+      <li>Everything is wiped when you close this window</li>
+      <li>Downloads and bookmarks you make are still kept</li>
+      <li>Websites, your school or your internet provider can still see what you visit</li>
+    </ul>
+  </div>
+  <div id="clock"></div>
+  <div id="meta"><span id="date"></span><button id="weather" title="Weather"></button></div>
+  <form id="search" autocomplete="off">
+    <i data-icon="search"></i>
+    <input id="q" placeholder="Search the web" spellcheck="false">
+  </form>
+  <div id="tiles"></div>
+</main>
+<div id="customize"><button class="btn" id="custBtn"><i data-icon="pencil"></i>Customize</button></div>
+
+<script>
+const $ = s => document.querySelector(s);
+const esc = s => Mica.esc(s);
+const ENG = { google: 'Google', duckduckgo: 'DuckDuckGo', bing: 'Bing', brave: 'Brave Search' };
+
+function render() {
+  const s = Mica.settings;
+  document.body.classList.toggle('incognito', Mica.incognito);
+  $('#q').placeholder = 'Search ' + (ENG[s.search] || 'Google') + ' or type a URL';
+  // wallpaper
+  const wall = $('#wall');
+  if (s.wallpaper && !Mica.incognito) {
+    const url = 'https://mica-wall.local/' + encodeURIComponent(s.wallpaper);
+    if (wall.dataset.src !== url) { wall.dataset.src = url; wall.style.backgroundImage = 'url("' + url + '")'; }
+    wall.classList.add('on');
+    $('#dim').style.opacity = s.wallpaperDim == null ? .2 : s.wallpaperDim;
+    document.body.classList.add('has-wall');
+  } else {
+    wall.classList.remove('on');
+    $('#dim').style.opacity = 0;
+    document.body.classList.remove('has-wall');
+  }
+  $('#clock').style.display = s.showClock === false ? 'none' : '';
+  renderTiles();
+  tick();
+  weather();
+}
+
+function tick() {
+  const s = Mica.settings, d = new Date();
+  let h = d.getHours(), m = String(d.getMinutes()).padStart(2, '0');
+  if (s.clock24) $('#clock').textContent = String(h).padStart(2, '0') + ':' + m;
+  else $('#clock').innerHTML = ((h % 12) || 12) + ':' + m + '<span class="ampm">' + (h < 12 ? 'AM' : 'PM') + '</span>';
+  $('#date').textContent = d.toLocaleDateString(undefined, { weekday: 'long', month: 'long', day: 'numeric' });
+}
+setInterval(tick, 1000 * 15);
+
+// ---------- shortcuts ----------
+function iconFor(url) {
+  try { return 'https://icons.duckduckgo.com/ip3/' + new URL(url).hostname + '.ico'; } catch { return ''; }
+}
+function renderTiles() {
+  const list = Mica.settings.shortcuts || [];
+  $('#tiles').innerHTML = list.map((t, i) =>
+    '<a class="tile" href="' + esc(t.url) + '" data-i="' + i + '"><span class="ic"><img src="' + iconFor(t.url) + '" alt="" onerror="this.outerHTML=\'<b>' + esc((t.title || '?')[0].toUpperCase()) + '</b>\'"></span>' +
+    '<span class="nm">' + esc(t.title) + '</span><button class="rm" title="Remove" data-rm="' + i + '">' + icon('x') + '</button></a>').join('') +
+    (list.length < 12 ? '<div class="tile add" id="addTile"><span class="ic">' + icon('plus') + '</span><span class="nm">Add shortcut</span></div>' : '');
+  document.querySelectorAll('[data-rm]').forEach(b => b.addEventListener('click', e => {
+    e.preventDefault(); e.stopPropagation();
+    const next = (Mica.settings.shortcuts || []).slice();
+    next.splice(+b.dataset.rm, 1);
+    Mica.set('shortcuts', next);
+    renderTiles();
+  }));
+  const add = $('#addTile');
+  if (add) add.addEventListener('click', addShortcut);
+}
+function addShortcut() {
+  const wrap = document.createElement('div');
+  wrap.className = 'dlg-wrap';
+  wrap.innerHTML = '<form class="dlg"><h3>Add shortcut</h3><input class="input" name="t" placeholder="Name" required><input class="input" name="u" placeholder="Web address, like youtube.com" required><div class="acts"><button type="button" class="btn ghost" data-x>Cancel</button><button class="btn primary">Add</button></div></form>';
+  document.body.appendChild(wrap);
+  const f = wrap.querySelector('form');
+  f.t.focus();
+  wrap.addEventListener('mousedown', e => { if (e.target === wrap) wrap.remove(); });
+  wrap.querySelector('[data-x]').onclick = () => wrap.remove();
+  f.addEventListener('submit', e => {
+    e.preventDefault();
+    let u = f.u.value.trim();
+    if (!/^https?:\/\//i.test(u)) u = 'https://' + u;
+    const next = (Mica.settings.shortcuts || []).concat([{ title: f.t.value.trim(), url: u }]);
+    Mica.set('shortcuts', next);
+    wrap.remove();
+    renderTiles();
+  });
+}
+
+// ---------- search ----------
+$('#search').addEventListener('submit', e => {
+  e.preventDefault();
+  const q = $('#q').value.trim();
+  if (q) Mica.send({ cmd: 'navigate', text: q });
+});
+
+// ---------- weather (Open-Meteo: free, no key) ----------
+const WMO = c => c === 0 ? ['sun', 'Clear'] : c <= 2 ? ['cloud', 'Partly cloudy'] : c === 3 ? ['cloud', 'Cloudy'] : c <= 48 ? ['fog', 'Foggy']
+  : c <= 67 ? ['rain', 'Rain'] : c <= 77 ? ['snow', 'Snow'] : c <= 82 ? ['rain', 'Showers'] : c <= 86 ? ['snow', 'Snow showers'] : ['storm', 'Thunderstorm'];
+async function weather() {
+  const s = Mica.settings, w = $('#weather');
+  if (s.showWeather === false || Mica.incognito) { w.style.display = 'none'; return; }
+  w.style.display = '';
+  if (!s.weather || !s.weather.lat) { w.innerHTML = icon('sun') + 'Set your city'; return; }
+  const unit = s.tempUnit === 'C' ? 'celsius' : 'fahrenheit';
+  const key = 'micaWx:' + s.weather.lat + ',' + s.weather.lon + ':' + unit;
+  let data = null;
+  try { const c = JSON.parse(localStorage.getItem(key) || 'null'); if (c && Date.now() - c.t < 30 * 60e3) data = c.d; } catch { }
+  if (!data) {
+    try {
+      const r = await fetch('https://api.open-meteo.com/v1/forecast?latitude=' + s.weather.lat + '&longitude=' + s.weather.lon + '&current=temperature_2m,weather_code&temperature_unit=' + unit);
+      data = (await r.json()).current;
+      localStorage.setItem(key, JSON.stringify({ t: Date.now(), d: data }));
+    } catch { w.innerHTML = icon('cloud') + esc(s.weather.name); return; }
+  }
+  const [ic, label] = WMO(data.weather_code);
+  w.innerHTML = icon(ic) + Math.round(data.temperature_2m) + '°' + (s.tempUnit === 'C' ? 'C' : 'F') + ' <span style="opacity:.7;font-weight:500">' + esc(s.weather.name) + '</span>';
+  w.title = label + ' in ' + s.weather.name;
+}
+$('#weather').addEventListener('click', () => openCustomize(true));
+
+// ---------- customize sheet ----------
+function openCustomize(focusCity) {
+  let sh = document.querySelector('.sheet');
+  if (sh) { sh.remove(); if (!focusCity) return; }
+  const s = Mica.settings;
+  sh = document.createElement('div');
+  sh.className = 'sheet';
+  sh.innerHTML = '<h3>Customize new tab</h3>' +
+    '<div class="row"><div><div class="lbl">Wallpaper</div><div class="sub">' + (s.wallpaper ? 'Your picture' : 'Theme background') + '</div></div><div style="display:flex;gap:6px">' +
+    (s.wallpaper ? '<button class="btn sm ghost" id="wRm">Remove</button>' : '') + '<button class="btn sm" id="wPick">' + icon('image') + 'Choose</button></div></div>' +
+    (s.wallpaper ? '<div class="row"><div class="lbl">Darken picture</div><input type="range" id="wDim" min="0" max="0.7" step="0.05" value="' + (s.wallpaperDim == null ? .2 : s.wallpaperDim) + '" style="accent-color:var(--accent)"></div>' : '') +
+    '<div class="row"><div class="lbl">Show clock</div><label class="switch"><input type="checkbox" id="sClock"' + (s.showClock !== false ? ' checked' : '') + '><span></span></label></div>' +
+    '<div class="row"><div class="lbl">24-hour clock</div><label class="switch"><input type="checkbox" id="s24"' + (s.clock24 ? ' checked' : '') + '><span></span></label></div>' +
+    '<div class="row"><div class="lbl">Show weather</div><label class="switch"><input type="checkbox" id="sWx"' + (s.showWeather !== false ? ' checked' : '') + '><span></span></label></div>' +
+    '<div class="row"><div class="lbl">Units</div><div class="segmented"><button data-u="F" class="' + (s.tempUnit !== 'C' ? 'on' : '') + '">°F</button><button data-u="C" class="' + (s.tempUnit === 'C' ? 'on' : '') + '">°C</button></div></div>' +
+    '<div class="row" style="display:block"><div class="lbl" style="margin-bottom:8px">City for weather</div><input class="input" id="city" style="width:100%" placeholder="Type a city…" value="' + esc(s.weather ? s.weather.name : '') + '"><div class="city-results" id="cities"></div></div>';
+  document.body.appendChild(sh);
+  sh.querySelector('#wPick').onclick = () => Mica.send({ cmd: 'pickWallpaper' });
+  const rm = sh.querySelector('#wRm'); if (rm) rm.onclick = () => { Mica.set('wallpaper', ''); render(); reopen(); };
+  const dim = sh.querySelector('#wDim'); if (dim) dim.oninput = () => { $('#dim').style.opacity = dim.value; }, dim && (dim.onchange = () => Mica.set('wallpaperDim', +dim.value));
+  sh.querySelector('#sClock').onchange = e => { Mica.set('showClock', e.target.checked); render(); };
+  sh.querySelector('#s24').onchange = e => { Mica.set('clock24', e.target.checked); tick(); };
+  sh.querySelector('#sWx').onchange = e => { Mica.set('showWeather', e.target.checked); weather(); };
+  sh.querySelectorAll('[data-u]').forEach(b => b.onclick = () => { Mica.set('tempUnit', b.dataset.u); weather(); reopen(); });
+  let timer;
+  const city = sh.querySelector('#city');
+  city.oninput = () => {
+    clearTimeout(timer);
+    timer = setTimeout(async () => {
+      const q = city.value.trim();
+      if (q.length < 2) { sh.querySelector('#cities').innerHTML = ''; return; }
+      try {
+        const r = await fetch('https://geocoding-api.open-meteo.com/v1/search?count=5&name=' + encodeURIComponent(q));
+        const res = (await r.json()).results || [];
+        sh.querySelector('#cities').innerHTML = res.map((c, i) => '<button data-c="' + i + '">' + esc(c.name) + ' <small>' + esc([c.admin1, c.country].filter(Boolean).join(', ')) + '</small></button>').join('') || '<small style="padding:6px 10px;color:var(--dim)">No cities found</small>';
+        sh.querySelectorAll('[data-c]').forEach(b => b.onclick = () => {
+          const c = res[+b.dataset.c];
+          Mica.set('weather', { name: c.name, lat: +c.latitude.toFixed(3), lon: +c.longitude.toFixed(3) });
+          weather();
+          reopen();
+        });
+      } catch { sh.querySelector('#cities').innerHTML = '<small style="padding:6px 10px;color:var(--dim)">Couldn\'t search right now</small>'; }
+    }, 300);
+  };
+  if (focusCity) setTimeout(() => city.focus(), 50);
+  function reopen() { sh.remove(); openCustomize(); }
+}
+$('#custBtn').addEventListener('click', () => openCustomize(false));
+document.addEventListener('mousedown', e => {
+  const sh = document.querySelector('.sheet');
+  if (sh && !sh.contains(e.target) && !e.target.closest('#customize') && !e.target.closest('#weather')) sh.remove();
+});
+
+Mica.on('init', render);
+Mica.on('settings', () => { render(); });
+document.addEventListener('DOMContentLoaded', () => { tick(); });
+</script>
+</body>
+</html>
