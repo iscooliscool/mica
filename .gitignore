@@ -5,3 +5,4 @@ installer/redist/
 *.user
 .vs/
 *.tmp
+HANDOFF.md
