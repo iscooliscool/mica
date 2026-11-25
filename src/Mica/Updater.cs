@@ -38,11 +38,16 @@ namespace Mica
                 var tag = d.Str("tag_name", "").TrimStart('v', 'V');
                 if (!Version.TryParse(tag, out var v) || Norm(v) <= Current) return null;
                 string url = null;
+                // A 32-bit Mica on 64-bit Windows came from the "-32bit" installer: stay on it.
+                string want = !Environment.Is64BitProcess && Environment.Is64BitOperatingSystem ? "Setup-32bit.exe" : "Setup.exe";
                 if (d.TryGetValue("assets", out var a) && a is object[] assets)
-                    url = assets.OfType<System.Collections.Generic.Dictionary<string, object>>()
+                {
+                    var urls = assets.OfType<System.Collections.Generic.Dictionary<string, object>>()
                         .Select(x => x.Str("browser_download_url", ""))
-                        .FirstOrDefault(u => u.EndsWith("Setup.exe", StringComparison.OrdinalIgnoreCase)
-                                          && u.StartsWith(RepoUrl + "/releases/download/", StringComparison.OrdinalIgnoreCase));
+                        .Where(u => u.StartsWith(RepoUrl + "/releases/download/", StringComparison.OrdinalIgnoreCase)).ToList();
+                    url = urls.FirstOrDefault(u => u.EndsWith(want, StringComparison.OrdinalIgnoreCase))
+                       ?? urls.FirstOrDefault(u => u.EndsWith("Setup.exe", StringComparison.OrdinalIgnoreCase));
+                }
                 if (url == null) return null;
                 return new Info { Version = tag, Url = url, Page = d.Str("html_url", RepoUrl + "/releases") };
             }

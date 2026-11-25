@@ -31,6 +31,8 @@ if (hasHost) chrome.webview.addEventListener('message', e => {
     case 'focusAddress': focusAddress(); break;
     case 'suggest': onSuggest(m); break;
     case 'toast': toast(m.text, m.icon, m.action); break;
+    case 'bookmarkPopup': openBookmarkPopup(m); break;
+    case 'importSources': Tour.onSources(m.list || []); break;
     case 'memory': onMemory(m); break;
     case 'startTour': Tour.start(m.first); break;
     case 'zoom': S.zoom = m.value; const z = $('#zoom-val'); if (z) z.textContent = m.value + '%'; break;
@@ -45,6 +47,8 @@ function onState(m) {
   if (wasIncognito !== S.incognito) onSettings(S.settings);
   body.classList.toggle('split', !!S.split);
   body.classList.toggle('ai', !!S.ai);
+  S.devtools = !!m.devtools;
+  body.classList.toggle('devtools', S.devtools);
   body.classList.toggle('maximized', !!S.maximized);
   body.classList.toggle('fullscreen', !!S.fullscreen);
   renderTabs();
@@ -67,6 +71,7 @@ function onSettings(s) {
   $('#btn-ai').style.display = S.settings.aiEnabled ? '' : 'none';
   $('#mem-pill').classList.toggle('show', !!S.settings.showMemory);
   document.documentElement.style.setProperty('--ai-w', (S.settings.aiWidth || 400) + 'px');
+  document.documentElement.style.setProperty('--dev-w', (S.settings.devWidth || 560) + 'px');
   $('#address').placeholder = 'Search ' + (ENGINES[S.settings.search] || 'Google') + ' or type a URL';
   $$('#ai-provider button').forEach(b => b.classList.toggle('on', b.dataset.provider === (S.settings.aiProvider || 'duck')));
   const bg = /^#/.test(t.bg) ? t.bg : '#ffffff';
@@ -89,7 +94,8 @@ function favHtml(t) {
 
 function makeTab(id) {
   const el = document.createElement('div');
-  el.className = 'tab';
+  el.className = 'tab new';
+  setTimeout(() => el.classList.remove('new'), 450);
   el.dataset.id = id;
   el.draggable = true;
   el.innerHTML = '<span class="fav"></span><span class="title"></span>' +
@@ -202,6 +208,10 @@ function renderToolbar() {
   $('#btn-split').classList.toggle('on', !!S.split);
 }
 
+function cpuName(s) {
+  return (s || '').replace(/\(R\)|\(TM\)|CPU|Processor|@.*$/gi, '').replace(/\s+with\s+.*$/i, '').replace(/\s+\d+-Core/i, '').replace(/\s+/g, ' ').trim();
+}
+
 function focusAddress() {
   const a = $('#address');
   a.focus();
@@ -289,7 +299,79 @@ function closeSuggest() {
   if (overlayKind === 'suggest') closeOverlay();
 }
 
-$('#btn-star').addEventListener('click', () => host({ cmd: 'bookmark' }));
+$('#btn-star').addEventListener('click', () => {
+  const b = $('#btn-star'); b.classList.remove('pop'); void b.offsetWidth; b.classList.add('pop');
+  host({ cmd: 'bookmark' });
+});
+
+// ---- bookmark popup (Ctrl+D / star), like Chrome's but nicer ----
+function openBookmarkPopup(m) {
+  openOverlay('menu');
+  const el = document.createElement('div');
+  el.className = 'bubble panel';
+  el.innerHTML = '<h3>' + icon('star') + (m.added ? 'Bookmark added' : 'Edit bookmark') + '</h3>' +
+    '<label>Name</label><input class="field" id="bm-name" spellcheck="false">' +
+    '<label>Address</label><input class="field" id="bm-url" spellcheck="false">' +
+    '<div class="row-btns"><button class="btn danger-ghost" data-a="remove">' + icon('trash') + 'Remove</button><span class="spacer"></span><button class="btn primary" data-a="done">Done</button></div>';
+  $('#bm-name', el).value = m.title || '';
+  $('#bm-url', el).value = m.url || '';
+  const done = () => {
+    host({ cmd: 'editBookmark', url: m.url, title: $('#bm-name', el).value, newUrl: $('#bm-url', el).value });
+    closeOverlay();
+  };
+  el.addEventListener('click', e => {
+    const a = e.target.closest('[data-a]');
+    if (!a) return;
+    if (a.dataset.a === 'remove') { host({ cmd: 'removeBookmark', url: m.url }); toast('Bookmark removed', 'star'); closeOverlay(); }
+    else done();
+  });
+  el.addEventListener('keydown', e => { if (e.key === 'Enter') done(); });
+  placeMenu(el, $('#btn-star').hidden ? $('#omnibox') : $('#btn-star'));
+  setTimeout(() => { const n = $('#bm-name', el); n.focus(); n.select(); }, 30);
+}
+
+function openBookmarkDialog(b) {
+  openOverlay('dialog', { scrim: true });
+  const el = document.createElement('div');
+  el.className = 'card small panel';
+  el.innerHTML = '<h2>' + (b.create ? 'Add bookmark' : 'Edit bookmark') + '</h2>' +
+    '<p class="lead" style="margin-bottom:8px">' + (b.create ? 'It shows up on your bookmarks bar and new tab page.' : 'Change its name or address.') + '</p>' +
+    '<div class="bubble" style="position:static;width:auto;padding:0;animation:none"><label>Name</label><input class="field" id="bd-name" spellcheck="false">' +
+    '<label>Address</label><input class="field" id="bd-url" spellcheck="false" placeholder="example.com"></div>' +
+    '<div class="foot"><span class="spacer"></span><button class="btn ghost" data-a="cancel">Cancel</button><button class="btn primary" data-a="save">Save</button></div>';
+  $('#bd-name', el).value = b.title || '';
+  $('#bd-url', el).value = b.url || '';
+  const save = () => {
+    const url = $('#bd-url', el).value.trim();
+    if (!url) { $('#bd-url', el).focus(); return; }
+    host({ cmd: 'editBookmark', url: b.create ? url : b.url, newUrl: url, title: $('#bd-name', el).value, create: !!b.create });
+    closeOverlay();
+  };
+  el.addEventListener('click', e => {
+    const a = e.target.closest('[data-a]');
+    if (!a) return;
+    if (a.dataset.a === 'save') save(); else closeOverlay();
+  });
+  el.addEventListener('keydown', e => { if (e.key === 'Enter') save(); });
+  $('#layer').appendChild(el);
+  setTimeout(() => $('#bd-name', el).focus(), 30);
+}
+
+// small right-click menu at the mouse
+function ctxMenu(x, y, items, onAct) {
+  openOverlay('menu');
+  const el = menuEl(items);
+  el.addEventListener('click', e => {
+    const a = e.target.closest('[data-act]');
+    if (!a || a.classList.contains('disabled')) return;
+    closeOverlay();
+    setTimeout(() => onAct(a.dataset.act), 20);
+  });
+  $('#layer').appendChild(el);
+  el.style.transformOrigin = 'top left';
+  el.style.left = Math.min(x, innerWidth - el.offsetWidth - 8) + 'px';
+  el.style.top = Math.min(y, innerHeight - el.offsetHeight - 8) + 'px';
+}
 
 // generic [data-cmd] buttons
 document.addEventListener('click', e => {
@@ -325,25 +407,140 @@ document.addEventListener('dblclick', e => {
 // =====================================================================
 //  Bookmarks bar
 // =====================================================================
+let bmKey = '';
+function bmIcon(url) {
+  if ((url || '').startsWith('mica://')) return '<img src="img/mica-32.png" alt="">';
+  try {
+    const u = new URL(url);
+    if (u.protocol !== 'https:' && u.protocol !== 'http:') return icon('globe');
+    return '<img src="https://icons.duckduckgo.com/ip3/' + u.hostname + '.ico" alt="" loading="lazy" onerror="this.outerHTML=icon(\'globe\')">';
+  } catch { return icon('globe'); }
+}
+function barBookmarks() { return (S.bookmarks || []).filter(b => b.bar !== false); }
+// What sits directly on the bar, in Chrome's order: loose bookmarks plus one button per top folder.
+function barEntries() {
+  const out = [], seen = new Set();
+  for (const b of barBookmarks()) {
+    const f = b.folder || '';
+    if (!f) { out.push({ b }); continue; }
+    const top = f.split(' / ')[0];
+    if (!seen.has(top)) { seen.add(top); out.push({ folder: top }); }
+  }
+  return out.slice(0, 40);
+}
+function bmOpen(b, e) {
+  if (e && (e.ctrlKey || e.button === 1)) host({ cmd: 'openUrl', url: b.url, background: true });
+  else host({ cmd: 'navigate', text: b.url });
+}
+function folderItems(path) {
+  return barBookmarks().filter(b => (b.folder || '') === path || (b.folder || '').startsWith(path + ' / '));
+}
+// Drop-down for a bookmarks-bar folder. Sub-folders open in place, with a Back row.
+function openFolderMenu(path, x, y) {
+  const all = barBookmarks();
+  const direct = all.filter(b => (b.folder || '') === path);
+  const subs = [];
+  for (const b of all) {
+    const f = b.folder || '';
+    if (!f.startsWith(path + ' / ')) continue;
+    const name = f.slice(path.length + 3).split(' / ')[0];
+    if (!subs.includes(name)) subs.push(name);
+  }
+  const parts = path.split(' / ');
+  const rows = [];
+  if (parts.length > 1) rows.push(mi('up', 'back', esc(parts.slice(0, -1).join(' / '))), sep);
+  subs.forEach((n, i) => rows.push('<div class="mi" data-act="f' + i + '">' + icon('folder') + '<span>' + esc(n) + '</span><span class="kbd">' + icon('arrowRight') + '</span></div>'));
+  direct.forEach((b, i) => rows.push('<div class="mi bmi" data-act="b' + i + '" title="' + esc(b.url) + '">' + bmIcon(b.url) + '<span>' + esc(b.title || b.url) + '</span></div>'));
+  if (!subs.length && !direct.length) rows.push('<div class="mi disabled" data-act="none">' + icon('info') + '<span>Empty folder</span></div>');
+  const count = folderItems(path).length;
+  if (count > 1) rows.push(sep, mi('all', 'plus', 'Open all (' + count + ') in new tabs'));
+  ctxMenu(x, y, rows, act => {
+    if (act === 'up') openFolderMenu(parts.slice(0, -1).join(' / '), x, y);
+    else if (act[0] === 'f') openFolderMenu(path + ' / ' + subs[+act.slice(1)], x, y);
+    else if (act[0] === 'b') bmOpen(direct[+act.slice(1)]);
+    else if (act === 'all') folderItems(path).forEach((b, i) => host({ cmd: 'openUrl', url: b.url, background: i > 0 }));
+  });
+  const m = $('#layer .menu:last-child');
+  if (m) { m.classList.add('folder-menu'); m.style.maxHeight = (innerHeight - y - 12) + 'px'; }
+}
 function renderBookmarks() {
   const bar = $('#bookmarks-bar');
-  if (!body.classList.contains('bmbar')) { bar.innerHTML = ''; return; }
-  const list = (S.bookmarks || []).slice(0, 40);
-  bar.innerHTML = list.map((b, i) => {
-    let ico = icon('globe');
-    try { ico = '<img src="' + new URL(b.url).origin + '/favicon.ico" alt="" onerror="this.outerHTML=icon(\'globe\')">'; } catch { }
-    return '<div class="bm" data-i="' + i + '" title="' + esc(b.title + '\n' + b.url) + '">' + ico + '<span>' + esc(b.title || b.url) + '</span></div>';
-  }).join('') + '<div class="bm more" data-more="1">' + icon('bookmark') + '<span>All bookmarks</span></div>';
+  const on = body.classList.contains('bmbar');
+  const list = on ? barEntries() : [];
+  // only redraw (and re-fetch icons) when the bookmarks actually changed
+  const key = on + '|' + list.map(x => x.folder ? '\u0003' + x.folder : x.b.url + '\u0001' + x.b.title).join('\u0002');
+  if (key === bmKey) return;
+  bmKey = key;
+  if (!on) { bar.innerHTML = ''; return; }
+  bar.innerHTML = list.map((x, i) => x.folder
+    ? '<div class="bm folder" data-i="' + i + '" title="' + esc(x.folder) + '">' + icon('folder') + '<span>' + esc(x.folder) + '</span></div>'
+    : '<div class="bm" data-i="' + i + '" title="' + esc(x.b.title + '\n' + x.b.url) + '">' + bmIcon(x.b.url) + '<span>' + esc(x.b.title || x.b.url) + '</span></div>'
+  ).join('') + '<div class="bm more" data-more="1">' + icon('bookmark') + '<span>All bookmarks</span></div>';
   $$('.bm', bar).forEach(el => {
+    const x = list[+el.dataset.i];
     el.addEventListener('click', e => {
       if (el.dataset.more) { host({ cmd: 'open', page: 'bookmarks' }); return; }
-      const b = list[+el.dataset.i];
-      if (e.ctrlKey) host({ cmd: 'openUrl', url: b.url, background: true });
-      else host({ cmd: 'navigate', text: b.url });
+      if (x.folder) { const r = el.getBoundingClientRect(); openFolderMenu(x.folder, r.left, r.bottom + 4); return; }
+      bmOpen(x.b, e);
     });
-    el.addEventListener('auxclick', e => { if (e.button === 1 && !el.dataset.more) host({ cmd: 'openUrl', url: list[+el.dataset.i].url, background: true }); });
+    el.addEventListener('auxclick', e => { if (e.button === 1 && x && x.b) bmOpen(x.b, e); });
+    el.addEventListener('contextmenu', e => {
+      if (el.dataset.more) return;
+      e.preventDefault(); e.stopPropagation();
+      if (x.folder) {
+        const n = folderItems(x.folder).length;
+        ctxMenu(e.clientX, e.clientY, [
+          mi('all', 'plus', 'Open all (' + n + ') in new tabs'),
+          sep,
+          mi('add', 'bookmarkPlus', 'Add bookmark…'),
+          mi('manage', 'bookmark', 'Manage bookmarks', 'Ctrl+Shift+O'),
+        ], act => {
+          if (act === 'all') folderItems(x.folder).forEach((b, i) => host({ cmd: 'openUrl', url: b.url, background: i > 0 }));
+          else if (act === 'add') addBookmarkFromCurrent();
+          else if (act === 'manage') host({ cmd: 'open', page: 'bookmarks' });
+        });
+        return;
+      }
+      const b = x.b;
+      ctxMenu(e.clientX, e.clientY, [
+        mi('open', 'arrowRight', 'Open'),
+        mi('newtab', 'plus', 'Open in new tab'),
+        sep,
+        mi('edit', 'pencil', 'Edit…'),
+        mi('delete', 'trash', 'Delete'),
+        sep,
+        mi('add', 'bookmarkPlus', 'Add bookmark…'),
+      ], act => {
+        if (act === 'open') host({ cmd: 'navigate', text: b.url });
+        else if (act === 'newtab') host({ cmd: 'openUrl', url: b.url });
+        else if (act === 'edit') openBookmarkDialog({ url: b.url, title: b.title });
+        else if (act === 'delete') { host({ cmd: 'removeBookmark', url: b.url }); toast('Bookmark deleted', 'trash'); }
+        else if (act === 'add') addBookmarkFromCurrent();
+      });
+    });
   });
 }
+function addBookmarkFromCurrent() {
+  const t = activeTab();
+  const internalNew = !t || t.url === 'mica://newtab';
+  openBookmarkDialog({ create: true, url: internalNew ? '' : t.url, title: internalNew ? '' : t.title });
+}
+$('#bookmarks-bar').addEventListener('contextmenu', e => {
+  if (e.target.closest('.bm:not(.more)')) return;
+  e.preventDefault();
+  ctxMenu(e.clientX, e.clientY, [
+    mi('add', 'bookmarkPlus', 'Add bookmark…'),
+    mi('thispage', 'star', 'Bookmark this tab', 'Ctrl+D'),
+    sep,
+    mi('manage', 'bookmark', 'Manage bookmarks', 'Ctrl+Shift+O'),
+    mi('hide', 'x', 'Hide bookmarks bar'),
+  ], act => {
+    if (act === 'add') addBookmarkFromCurrent();
+    else if (act === 'thispage') host({ cmd: 'bookmark' });
+    else if (act === 'manage') host({ cmd: 'open', page: 'bookmarks' });
+    else if (act === 'hide') setting('bookmarksBar', false);
+  });
+});
 
 // =====================================================================
 //  Layout reporting: tells the host where to place the page views
@@ -366,6 +563,7 @@ function reportLayout() {
     a: rectOf(a),
     b: S.split ? rectOf($('#pane-b')) : null,
     ai: S.ai ? rectOf($('#ai-host')) : null,
+    dev: S.devtools ? rectOf($('#dev-host')) : null,
     radius: Math.round((parseFloat(getComputedStyle(a).borderTopLeftRadius) || 0) * devicePixelRatio),
   };
   const key = JSON.stringify(m);
@@ -396,6 +594,12 @@ dragResize($('#divider'), e => {
   splitRatio = Math.min(.8, Math.max(.2, (e.clientX - r.left) / r.width));
   document.documentElement.style.setProperty('--split', (splitRatio * 100) + '%');
 }, () => localStorage.setItem('micaSplit', String(splitRatio)));
+new ResizeObserver(queueLayout).observe($('#dev-host'));
+dragResize($('#dev-resize'), e => {
+  const w = Math.round(Math.min(window.innerWidth * .7, Math.max(340, window.innerWidth - e.clientX - parseFloat(getComputedStyle(document.documentElement).getPropertyValue('--inset')))));
+  S.settings.devWidth = w;
+  document.documentElement.style.setProperty('--dev-w', w + 'px');
+}, () => host({ cmd: 'setSetting', key: 'devWidth', value: S.settings.devWidth }));
 dragResize($('#ai-resize'), e => {
   const w = Math.round(Math.min(window.innerWidth * .6, Math.max(300, window.innerWidth - e.clientX - parseFloat(getComputedStyle(document.documentElement).getPropertyValue('--inset')))));
   S.settings.aiWidth = w;
@@ -493,10 +697,11 @@ function openMainMenu(anchor) {
     mi('history', 'history', 'History', 'Ctrl+H'),
     mi('bookmarks', 'bookmark', 'Bookmarks', 'Ctrl+Shift+O'),
     mi('downloads', 'download', 'Downloads', 'Ctrl+J'),
+    mi('extensions', 'puzzle', 'Extensions'),
     sep,
     '<div class="mrow"><span class="label">' + icon('zoomin') + 'Zoom</span><button class="chip-btn" data-act="zoomOut">' + icon('minus') + '</button><span class="zoom-val" id="zoom-val">' + S.zoom + '%</span><button class="chip-btn" data-act="zoomIn">' + icon('plus') + '</button><button class="chip-btn" data-act="zoomReset" title="Reset">' + icon('expand') + '</button></div>',
     mi('print', 'printer', 'Print', 'Ctrl+P'),
-    mi('devtools', 'code', 'Inspect (developer tools)', 'F12'),
+    mi('devtools', 'code', S.devtools ? 'Close developer tools' : 'Developer tools (Inspect)', 'F12'),
     sep,
     '<div class="mhead">Theme</div>',
     '<div class="theme-dots">' + Object.keys(themes).map(k => '<button class="theme-dot' + (k === cur ? ' on' : '') + '" data-theme="' + k + '" title="' + themes[k].name + '"></button>').join('') + '</div>',
@@ -532,7 +737,8 @@ function openMainMenu(anchor) {
       case 'zoomOut': host({ cmd: 'zoom', dir: 'out' }); break;
       case 'zoomReset': host({ cmd: 'zoom', dir: 'reset' }); break;
       case 'print': host({ cmd: 'print' }); break;
-      case 'devtools': host({ cmd: 'devtools' }); break;
+      case 'devtools': host({ cmd: S.devtools ? 'devClose' : 'devtools' }); break;
+      case 'extensions': host({ cmd: 'extensions' }); break;
       case 'settings': host({ cmd: 'open', page: 'settings' }); break;
       case 'tour': setTimeout(() => Tour.start(false), 30); break;
       case 'about': setTimeout(openAbout, 30); break;
@@ -643,7 +849,8 @@ function toast(text, ic, action) {
   t.innerHTML = (ic ? icon(ic === 'ai' ? 'sparkle' : ic) : '') + '<span>' + esc(text) + '</span>';
   t.classList.remove('show'); void t.offsetWidth; t.classList.add('show');
   t.classList.toggle('clickable', !!action);
-  t.onclick = action === 'openShots' ? () => host({ cmd: 'openFolder', which: 'screenshots' }) : null;
+  t.onclick = action === 'openShots' ? () => host({ cmd: 'openFolder', which: 'screenshots' })
+    : action === 'extensions' ? () => host({ cmd: 'extensions' }) : null;
   if (action === 'openShots') t.title = 'Open screenshots folder';
   clearTimeout(toastTimer);
   toastTimer = setTimeout(() => t.classList.remove('show'), action ? 4200 : 2600);
@@ -689,7 +896,7 @@ function openAbout() {
 // =====================================================================
 const Tour = (() => {
   let step = 0, first = false, el = null, spotIndex = -1, sleepInit = false;
-  const pages = ['welcome', 'look', 'tabs', 'speed', 'ai', 'import', 'tourIntro'];
+  const pages = ['welcome', 'import', 'look', 'tabs', 'speed', 'ai', 'tourIntro'];
 
   function start(isFirst) {
     first = !!isFirst;
@@ -699,6 +906,7 @@ const Tour = (() => {
     render();
   }
   function end() {
+    body.classList.remove('tour-look');
     host({ cmd: 'tourDone' });
     closeOverlay();
     el = null;
@@ -732,6 +940,7 @@ const Tour = (() => {
     body.classList.add('scrim');
     const s = S.settings, sys = S.sys;
     const page = pages[step];
+    body.classList.toggle('tour-look', page === 'look');
     let c;
     if (page === 'welcome') {
       c = card('<div class="hero"><img src="img/mica-256.png" alt=""><h1>Welcome to Mica</h1>' +
@@ -772,7 +981,7 @@ const Tour = (() => {
       const cur = S.settings.sleepMinutes;
       const opts = [1, 3, 5, 15, 0];
       c = card('<h2>Make Mica fit your PC</h2><p class="lead">Mica puts tabs you aren\'t using to sleep. Sleeping tabs use zero memory and wake up when you click them.</p>' +
-        '<div class="spec"><span>' + icon('chip') + (sys.ramGB || '?') + ' GB memory</span><span>' + icon('bolt') + (sys.cores || '?') + ' cores</span>' + (sys.cpu ? '<span title="' + esc(sys.cpu) + '">' + esc(sys.cpu.replace(/\(R\)|\(TM\)|CPU|@.*$/g, '').replace(/\s+/g, ' ').trim().slice(0, 34)) + '</span>' : '') + '</div>' +
+        '<div class="spec"><span>' + icon('chip') + (sys.ramGB || '?') + ' GB memory</span><span>' + icon('bolt') + (sys.cores || '?') + ' cores</span>' + (sys.cpu ? '<span title="' + esc(sys.cpu) + '">' + esc(cpuName(sys.cpu)) + '</span>' : '') + '</div>' +
         '<div class="section-label" style="margin-top:4px">Put unused tabs to sleep after</div><div class="opt-row">' +
         opts.map(o => '<button class="opt' + (cur === o ? ' on' : '') + '" data-sleep="' + o + '">' + (o ? o + ' min' : 'Never') + (o === rec ? ' <span class="rec">RECOMMENDED</span>' : '') + '</button>').join('') + '</div>' +
         '<div class="section-label">Potato mode</div>' +
@@ -790,18 +999,21 @@ const Tour = (() => {
       $$('[data-ai]', c).forEach(b => b.addEventListener('click', () => { setting('aiEnabled', b.dataset.ai === '1'); render(); }));
       $$('[data-prov]', c).forEach(b => b.addEventListener('click', () => { setting('aiProvider', b.dataset.prov); render(); }));
     } else if (page === 'import') {
-      const any = sys.hasChrome || sys.hasEdge;
-      c = card('<h2>Bring your bookmarks</h2><p class="lead">' + (any ? 'Copy your bookmarks over so your favorite sites are one click away.' : 'We didn\'t find Chrome or Edge on this PC, so there\'s nothing to import. You can skip this.') + '</p>' +
-        '<div class="choice-grid" style="grid-template-columns:1fr 1fr">' +
-        (sys.hasChrome ? '<button class="choice row" data-imp="chrome"><span class="icon-bubble">' + icon('import') + '</span><span class="grow"><div class="name">Import from Chrome</div><div class="desc" id="imp-chrome">Bookmarks</div></span></button>' : '') +
-        (sys.hasEdge ? '<button class="choice row" data-imp="edge"><span class="icon-bubble">' + icon('import') + '</span><span class="grow"><div class="name">Import from Edge</div><div class="desc" id="imp-edge">Bookmarks</div></span></button>' : '') +
-        '</div><div class="section-label">Default browser</div>' +
-        '<button class="choice row" data-default="1" style="width:100%"><span class="icon-bubble">' + icon('globe') + '</span><span class="grow"><div class="name">Make Mica your default browser</div><div class="desc">Opens Windows Settings. Pick Mica there.</div></span></button>' + foot());
-      $$('[data-imp]', c).forEach(b => b.addEventListener('click', () => { $('#imp-' + b.dataset.imp).textContent = 'Importing…'; host({ cmd: 'import', from: b.dataset.imp }); }));
-      $('[data-default]', c).addEventListener('click', () => host({ cmd: 'setDefault' }));
+      c = card('<h2>Import from another browser?</h2><p class="lead">Bring your bookmarks, history and extensions over to Mica, or skip this and start fresh.</p>' +
+        '<div id="imp-list" class="choice-grid" style="grid-template-columns:1fr"><div class="desc" style="color:var(--dim)">Looking for other browsers…</div></div>' +
+        '<div class="note" style="margin-top:12px">' + icon('shield') + '<div>Passwords and cookies can\'t be copied. Chrome and Edge lock them so no other app can read them (that\'s what keeps you safe from password-stealing malware). You\'ll just sign in to your sites once.</div></div>' +
+        foot(importedAny ? 'Continue' : 'No thanks, start fresh'));
+      host({ cmd: 'importSources' });
+      if (sources) showSources(c);
     } else if (page === 'tourIntro') {
-      c = card('<div class="hero"><h1 style="margin-top:0">You\'re all set</h1><p class="lead">Want a quick look at where everything is? It takes 20 seconds.</p></div>' +
-        '<div class="foot">' + dots() + '<span class="spacer"></span><button class="btn ghost" data-nav="skip">Start browsing</button><button class="btn primary" data-nav="spots">' + icon('compass') + 'Show me around</button></div>', 'small');
+      const auto = !!s.autoUpdate;
+      c = card('<div class="hero"><h1 style="margin-top:0">You\'re all set</h1><p class="lead">Two last things, then a quick 20-second look at where everything is.</p></div>' +
+        '<div class="choice-grid" style="grid-template-columns:1fr 1fr;margin-bottom:6px">' +
+        '<button class="choice row" data-default="1"><span class="icon-bubble">' + icon('globe') + '</span><span class="grow"><div class="name">Make Mica your default</div><div class="desc">Opens Windows Settings</div></span></button>' +
+        '<button class="choice row' + (auto ? ' on' : '') + '" data-auto="1"><span class="icon-bubble">' + icon('update') + '</span><span class="grow"><div class="name">Update automatically</div><div class="desc">' + (auto ? 'On: installs when you close Mica' : 'Off: Mica asks first') + '</div></span></button></div>' +
+        '<div class="foot">' + dots() + '<span class="spacer"></span><button class="btn ghost" data-nav="skip">Start browsing</button><button class="btn primary" data-nav="spots">' + icon('compass') + 'Show me around</button></div>');
+      $('[data-default]', c).addEventListener('click', () => host({ cmd: 'setDefault' }));
+      $('[data-auto]', c).addEventListener('click', () => { setting('autoUpdate', !auto); render(); });
     }
     if (c) wire(c);
   }
@@ -887,13 +1099,40 @@ const Tour = (() => {
     };
   }
 
+  let sources = null, importedAny = false;
+  function showSources(c) {
+    const box = $('#imp-list', c || document);
+    if (!box) return;
+    if (!sources.length) { box.innerHTML = '<div class="desc" style="color:var(--dim)">No other browsers found on this PC. You can skip this.</div>'; return; }
+    box.innerHTML = sources.map((s, i) => '<div class="choice row" style="cursor:default"><span class="icon-bubble">' + icon('import') + '</span><span class="grow"><div class="name">' + esc(s.browser) + (s.profile ? ' <span style="color:var(--dim);font-weight:500">&middot; ' + esc(s.profile) + '</span>' : '') + '</div>' +
+      '<div class="desc" id="imp-st-' + i + '">' + [s.bookmarks ? 'Bookmarks' : '', s.history ? 'History' : '', s.extensions ? s.extensions + ' extensions' : ''].filter(Boolean).join(' &middot; ') + '</div></span>' +
+      '<button class="btn primary" data-src="' + i + '" style="height:34px">Import</button></div>').join('');
+    $$('[data-src]', box).forEach(b => b.addEventListener('click', () => {
+      const s = sources[+b.dataset.src];
+      b.disabled = true; b.textContent = 'Importing…';
+      $('#imp-st-' + b.dataset.src).textContent = 'Copying…';
+      host({ cmd: 'import', source: s.id, bookmarks: true, history: true, extensions: true });
+    }));
+  }
+  function onSources(list) { sources = list; showSources(); }
   function onImported(m) {
-    const d = $('#imp-' + m.from);
-    const text = m.count > 0 ? 'Imported ' + m.count + ' bookmarks' : m.count === 0 ? 'Already up to date' : m.count === -1 ? 'Not found' : 'Couldn\'t read bookmarks';
-    if (d) d.textContent = text; else toast(text, 'import');
+    const text = m.error ? 'Couldn\'t import: ' + m.error
+      : 'Imported ' + [m.bookmarks + ' bookmarks', m.history + ' history items', m.extensions + ' extensions'].join(', ') + (m.extensionsFailed ? ' (' + m.extensionsFailed + ' extensions aren\'t supported)' : '');
+    const i = sources ? sources.findIndex(s => s.id === m.source) : -1;
+    const d = i >= 0 ? $('#imp-st-' + i) : null;
+    if (!m.error) {
+      importedAny = true;
+      const nx = $('#layer .card [data-nav="next"]');
+      if (nx) nx.textContent = 'Continue';
+    }
+    if (d) {
+      d.textContent = text;
+      const b = $('[data-src="' + i + '"]');
+      if (b) { b.textContent = m.error ? 'Try again' : 'Done ✓'; b.disabled = !m.error; }
+    } else toast(text, 'import');
   }
 
-  return { start, end, onImported };
+  return { start, end, onImported, onSources };
 })();
 
 // tell the host we're ready to receive state

@@ -17,8 +17,10 @@
   .search .i { position: absolute; left: 11px; top: 10px; width: 17px; height: 17px; color: var(--dim); }
   .search .input { width: 100%; padding-left: 36px; }
   .day { font-size: 12px; font-weight: 700; text-transform: uppercase; letter-spacing: .06em; color: var(--dim); margin: 22px 4px 8px; }
+  .folder-head { display: flex; align-items: center; gap: 8px; text-transform: none; letter-spacing: 0; font-size: 13px; }
+  .folder-head .i { width: 16px; height: 16px; color: var(--accent); }
   .list { background: var(--surface-2); border: 1px solid var(--border); border-radius: var(--radius-lg); padding: 6px; }
-  body.glass .list { background: rgba(255,255,255,.66); backdrop-filter: blur(20px); }
+  body.glass .list { background: var(--glass-bg); backdrop-filter: blur(var(--blur)); }
   .item { display: flex; align-items: center; gap: 14px; padding: 8px 10px; border-radius: var(--radius); cursor: pointer; }
   .item:hover { background: var(--hover); }
   .item .fav { width: 32px; height: 32px; border-radius: 9px; background: var(--hover); display: grid; place-items: center; flex: none; font-weight: 700; color: var(--accent); }
@@ -74,7 +76,14 @@ function render() {
   let html = '';
   if (mode === 'bookmarks') {
     const list = (Mica.bookmarks || []).filter(b => !q || (b.title + ' ' + b.url).toLowerCase().includes(q));
-    html = list.length ? '<div class="list">' + list.map(b => item(b, true)).join('') + '</div>'
+    // grouped by folder, in the order the folders first appear
+    const groups = new Map();
+    for (const b of list) {
+      const g = b.bar === false ? (b.folder || 'Other bookmarks') : (b.folder ? 'Bookmarks bar / ' + b.folder : 'Bookmarks bar');
+      if (!groups.has(g)) groups.set(g, []);
+      groups.get(g).push(b);
+    }
+    html = list.length ? [...groups].map(([g, items]) => '<div class="day folder-head">' + icon('folder') + esc(g) + '</div><div class="list">' + items.map(b => item(b, true)).join('') + '</div>').join('')
       : '<div class="empty">' + icon('star') + '<div>' + (q ? 'No bookmarks match.' : 'No bookmarks yet. Click the star in the address bar to add one.') + '</div></div>';
   } else {
     if (!histList.length) html = '<div class="empty">' + icon('history') + '<div>' + (Mica.incognito ? 'Private windows don\'t keep history.' : q ? 'Nothing matches.' : 'Pages you visit will show up here.') + '</div></div>';

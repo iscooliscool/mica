@@ -8,8 +8,15 @@
       border: 'rgba(22,26,44,.09)', hover: 'rgba(22,26,44,.055)', page: '#f6f7fa',
       radius: 10, inset: 8, blur: 0, art: 'none',
     },
+    midnightSky: {
+      name: 'Midnight Sky', dark: true, accent: '#e94fd0',
+      bg: '#1a1042', surface: '#211452', surface2: '#2f1d77', text: '#f4efff', dim: '#b3a6dd',
+      border: 'rgba(255,255,255,.08)', hover: 'rgba(255,255,255,.07)', page: '#1a1042',
+      radius: 10, inset: 10, blur: 0, art: 'radial-gradient(1200px 520px at 50% -30%, rgba(120,80,255,.28), transparent 70%)',
+      font: '"Segoe UI Variable Display", "Segoe UI", system-ui, sans-serif',
+    },
     midnight: {
-      name: 'Midnight', dark: true, accent: '#8190ff',
+      name: 'Graphite', dark: true, accent: '#8190ff',
       bg: '#111217', surface: '#18191f', surface2: '#202229', text: '#eceef5', dim: '#9195a8',
       border: 'rgba(255,255,255,.07)', hover: 'rgba(255,255,255,.06)', page: '#18191f',
       radius: 10, inset: 8, blur: 0, art: 'none',
@@ -100,13 +107,16 @@
     set('--inset', (t.inset | 0) + 'px');
     set('--blur', (t.blur | 0) + 'px');
     set('--art', t.art || 'none');
+    set('--glass-bg', t.dark ? 'rgba(24,22,40,.62)' : 'rgba(255,255,255,.66)');
+    set('--glass-strong', t.dark ? 'rgba(28,26,48,.86)' : 'rgba(255,255,255,.80)');
+    set('--glass-edge', t.dark ? 'rgba(255,255,255,.10)' : 'rgba(255,255,255,.80)');
     set('--font', t.font || '"Segoe UI Variable Text", "Segoe UI", system-ui, -apple-system, sans-serif');
     if (!opts.el) {
       const b = document.body;
       if (b) {
         b.classList.toggle('dark', !!t.dark);
         b.classList.toggle('light', !t.dark);
-        b.classList.toggle('glass', !!t.glass && !s.potato);
+        b.classList.toggle('glass', !!(t.glass || (t.blur | 0) > 0) && !s.potato);
         b.classList.toggle('glow', !!t.glow);
         b.classList.toggle('pixel', !!t.pixel);
         b.classList.toggle('potato', !!s.potato);

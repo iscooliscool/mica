@@ -1,4 +1,4 @@
-<Project Sdk="Microsoft.NET.Sdk">
+﻿<Project Sdk="Microsoft.NET.Sdk">
 
   <!-- Mica's own installer: one self-contained .exe with a custom WebView2 interface.
        Build Mica first; build.ps1 makes payload\app.zip from Mica's output. -->
@@ -10,7 +10,7 @@
     <RootNamespace>MicaSetup</RootNamespace>
     <ApplicationIcon>..\..\assets\mica.ico</ApplicationIcon>
     <ApplicationManifest>app.manifest</ApplicationManifest>
-    <Version>1.0.0</Version>
+    <Version>1.1.0</Version>
     <Product>Mica Setup</Product>
     <AssemblyTitle>Mica Setup</AssemblyTitle>
     <Company>Mica</Company>
@@ -20,6 +20,9 @@
     <DebugType>none</DebugType>
     <SatelliteResourceLanguages>en</SatelliteResourceLanguages>
     <MicaBin>..\Mica\bin\Release\net462\</MicaBin>
+    <!-- The installer's own window needs the WebView2 loader for every CPU type, so it always
+         takes them from the AnyCPU build (the 32-bit build only contains the x86 one). -->
+    <LoaderBin>$(MicaBin)</LoaderBin>
   </PropertyGroup>
 
   <ItemGroup>
@@ -38,11 +41,11 @@
   <ItemGroup>
     <EmbeddedResource Include="payload\app.zip" LogicalName="app.zip" />
     <EmbeddedResource Include="..\..\installer\redist\MicrosoftEdgeWebview2Setup.exe" LogicalName="wv2setup.exe" />
-    <EmbeddedResource Include="$(MicaBin)Microsoft.Web.WebView2.Core.dll" LogicalName="wv2.core.dll" />
-    <EmbeddedResource Include="$(MicaBin)Microsoft.Web.WebView2.WinForms.dll" LogicalName="wv2.winforms.dll" />
-    <EmbeddedResource Include="$(MicaBin)runtimes\win-x64\native\WebView2Loader.dll" LogicalName="loader.x64.dll" />
-    <EmbeddedResource Include="$(MicaBin)runtimes\win-x86\native\WebView2Loader.dll" LogicalName="loader.x86.dll" />
-    <EmbeddedResource Include="$(MicaBin)runtimes\win-arm64\native\WebView2Loader.dll" LogicalName="loader.arm64.dll" />
+    <EmbeddedResource Include="$(LoaderBin)Microsoft.Web.WebView2.Core.dll" LogicalName="wv2.core.dll" />
+    <EmbeddedResource Include="$(LoaderBin)Microsoft.Web.WebView2.WinForms.dll" LogicalName="wv2.winforms.dll" />
+    <EmbeddedResource Include="$(LoaderBin)runtimes\win-x64\native\WebView2Loader.dll" LogicalName="loader.x64.dll" />
+    <EmbeddedResource Include="$(LoaderBin)runtimes\win-x86\native\WebView2Loader.dll" LogicalName="loader.x86.dll" />
+    <EmbeddedResource Include="$(LoaderBin)runtimes\win-arm64\native\WebView2Loader.dll" LogicalName="loader.arm64.dll" />
     <EmbeddedResource Include="ui\**\*" LogicalName="ui/%(RecursiveDir)%(Filename)%(Extension)" />
     <EmbeddedResource Include="..\..\assets\mica-256.png" LogicalName="ui/mica-256.png" />
   </ItemGroup>

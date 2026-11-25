@@ -20,9 +20,18 @@ namespace Mica
     /// </summary>
     public partial class MainForm : Form
     {
-        const string UiHost = "mica.local";
-        const string UiOrigin = "https://mica.local/";
-        const string PagesUrl = "https://mica.local/pages/";
+        // Not ".local": Windows does a slow network lookup for .local names (~2 s per page).
+        // The interface and Mica's pages are different sites, so they never share a renderer
+        // process (a stuck or crashed page can't take the toolbar down with it).
+        const string UiHost = "mica-ui.example";
+        const string UiOrigin = "https://mica-ui.example/";
+        const string PagesHost = "mica.example";
+        const string PagesUrl = "https://mica.example/pages/";
+        const string WallHost = "mica-wall.example";
+        public static int DevToolsPort;
+        // After a bulk extension import, extensions may try to open welcome/sign-in tabs: hold those back.
+        public static DateTime QuietTabsUntil = DateTime.MinValue;
+        static bool QuietTab(CoreWebView2NewWindowRequestedEventArgs e) => !e.IsUserInitiated && DateTime.UtcNow < QuietTabsUntil;
 
         readonly Store store = Store.Instance;
         static readonly SysInfo sys = SysInfo.Read();
@@ -49,6 +58,9 @@ namespace Mica
         Rectangle preFsBounds;
         bool preFsMax;
         string pipScript = "";
+        string storeScript = "";
+        WebView2 spare;           // a new-tab page loaded ahead of time so Ctrl+T is instant
+        bool spareBusy;
         Color pageBg = Color.White;
         bool stateQueued;
         Updater.Info pendingUpdate;
@@ -79,17 +91,27 @@ namespace Mica
         // =====================================================================
         async Task InitAsync()
         {
-            // Potato mode: Chromium's own low-memory mode + fewer page processes.
-            string args = store.B("potato")
-                ? "--enable-low-end-device-mode --renderer-process-limit=2 --disable-smooth-scrolling"
-                : "";
             if (sharedEnv == null)
             {
-                var opts = new CoreWebView2EnvironmentOptions(args) { AreBrowserExtensionsEnabled = false, EnableTrackingPrevention = true };
+                // Potato mode: Chromium's own low-memory mode + fewer page processes.
+                string args = store.B("potato")
+                    ? "--enable-low-end-device-mode --renderer-process-limit=2 --disable-smooth-scrolling"
+                    : "";
+                // Docked Chrome DevTools talk to the engine over a local-only debugging port.
+                if (store.Settings.Bool("devtoolsPanel", true))
+                {
+                    DevToolsPort = int.TryParse(Environment.GetEnvironmentVariable("MICA_DEVTOOLS_PORT"), out var fixedPort) ? fixedPort : PortIfFree(store.Settings.Int("devtoolsPort")) ?? FreePort();
+                    if (DevToolsPort > 0) store.Set("devtoolsPort", DevToolsPort);
+                    if (DevToolsPort > 0)
+                        args += " --remote-debugging-address=127.0.0.1 --remote-debugging-port=" + DevToolsPort +
+                                " --remote-allow-origins=http://127.0.0.1:" + DevToolsPort;
+                }
+                var opts = new CoreWebView2EnvironmentOptions(args.Trim()) { AreBrowserExtensionsEnabled = true, EnableTrackingPrevention = true };
                 sharedEnv = CoreWebView2Environment.CreateAsync(null, Store.ProfileDir, opts);
             }
             env = await sharedEnv;
             try { pipScript = File.ReadAllText(Path.Combine(uiDir, "inject", "pip.js")); } catch { }
+            try { storeScript = File.ReadAllText(Path.Combine(uiDir, "inject", "webstore.js")); } catch { }
 
             ui = new WebView2 { Dock = DockStyle.Fill, DefaultBackgroundColor = BackColor };
             Controls.Add(ui);
@@ -109,7 +131,13 @@ namespace Mica
             st.IsGeneralAutofillEnabled = false;
             c.WebMessageReceived += (s, e) => { if (e.Source.StartsWith(UiOrigin)) OnUiMessage(J.Obj(e.WebMessageAsJson)); };
             c.NavigationStarting += (s, e) => { if (!e.Uri.StartsWith(UiOrigin)) { e.Cancel = true; _ = NewTab(e.Uri); } };
-            c.NewWindowRequested += (s, e) => { e.Handled = true; _ = NewTab(e.Uri); };
+            c.NewWindowRequested += (s, e) => { e.Handled = true; if (!QuietTab(e)) _ = NewTab(e.Uri); };
+            // If the interface's renderer ever crashes or hangs, bring it straight back.
+            c.ProcessFailed += (s, e) =>
+            {
+                if (e.ProcessFailedKind == CoreWebView2ProcessFailedKind.BrowserProcessExited) return;
+                BeginInvoke(new Action(() => { try { uiReady = false; ui.CoreWebView2.Reload(); } catch { } }));
+            };
             c.ContextMenuRequested += (s, e) =>
             {
                 if (!e.ContextMenuTarget.IsEditable) { e.Handled = true; return; }
@@ -134,6 +162,86 @@ namespace Mica
 
             sleepTimer.Start();
             if (store.B("showMemory")) memTimer.Start();
+            _ = Extensions.LoadAll(env, store);
+        }
+
+        static int? PortIfFree(int port)
+        {
+            if (port <= 1024) return null;
+            try
+            {
+                var l = new System.Net.Sockets.TcpListener(System.Net.IPAddress.Loopback, port);
+                l.Start(); l.Stop();
+                return port;
+            }
+            catch { return null; }
+        }
+
+        static int FreePort()
+        {
+            try
+            {
+                var l = new System.Net.Sockets.TcpListener(System.Net.IPAddress.Loopback, 0);
+                l.Start();
+                int p = ((System.Net.IPEndPoint)l.LocalEndpoint).Port;
+                l.Stop();
+                return p;
+            }
+            catch { return 0; }
+        }
+
+        /// <summary>Mica's own pages get their settings baked in, so they draw instantly (no round trip).</summary>
+        string BootScript() =>
+            "if(location.host==='" + PagesHost + "'){window.__micaBoot=" + J.Ser(new { settings = store.Settings, sys = SysObject(), bookmarks = store.Bookmarks, incognito = Incognito }) + ";}";
+
+        async Task ApplyBootScript(WebView2 v, BrowserTab t)
+        {
+            var c = v?.CoreWebView2;
+            if (c == null) return;
+            var old = t != null ? t.BootScriptId : v.AccessibleDescription;
+            if (old != null) try { c.RemoveScriptToExecuteOnDocumentCreated(old); } catch { }
+            var id = await c.AddScriptToExecuteOnDocumentCreatedAsync(BootScript());
+            if (t != null) t.BootScriptId = id; else v.AccessibleDescription = id;
+        }
+
+        void RefreshBootScripts()
+        {
+            foreach (var t in tabs) if (t.View?.CoreWebView2 != null) _ = ApplyBootScript(t.View, t);
+            if (spare?.CoreWebView2 != null) _ = ApplyBootScript(spare, null);
+        }
+
+        bool LowMemoryPc => sys.RamGB <= 3.2 || store.B("potato");
+
+        /// <summary>Keeps one new-tab page ready in the background (skipped on low-memory PCs).</summary>
+        async Task PrepareSpare()
+        {
+            if (spare != null || spareBusy || LowMemoryPc || env == null) return;
+            spareBusy = true;
+            try
+            {
+                await Task.Delay(1200);
+                var v = new WebView2 { Visible = false, DefaultBackgroundColor = pageBg };
+                Controls.Add(v);
+                _ = v.Handle;
+                await v.EnsureCoreWebView2Async(env, ControllerOptions());
+                SetupPageView(v.CoreWebView2);
+                await ApplyBootScript(v, null);
+                if (pipScript.Length > 0 && store.B("pipButton")) v.Tag = await v.CoreWebView2.AddScriptToExecuteOnDocumentCreatedAsync(pipScript);
+                v.CoreWebView2.Navigate(ToNavigable("mica://newtab"));
+                spare = v;
+            }
+            catch { }
+            finally { spareBusy = false; }
+        }
+
+        void SetupPageView(CoreWebView2 c)
+        {
+            c.SetVirtualHostNameToFolderMapping(PagesHost, uiDir, CoreWebView2HostResourceAccessKind.Allow);
+            c.SetVirtualHostNameToFolderMapping(WallHost, Store.WallDir, CoreWebView2HostResourceAccessKind.DenyCors);
+            c.Settings.AreDevToolsEnabled = true;
+            c.Settings.IsStatusBarEnabled = true;
+            c.Settings.IsPasswordAutosaveEnabled = true;
+            c.Settings.IsGeneralAutofillEnabled = true;
         }
 
         void ApplyTracking()
@@ -232,6 +340,26 @@ namespace Mica
         {
             if (t.View != null || t.Waking) { deferral?.Complete(); return; }
             t.Waking = true;
+
+            // Fast path: a new tab takes the new-tab page that's already loaded.
+            if (nw == null && t.Url == "mica://newtab" && spare?.CoreWebView2 != null)
+            {
+                var sv = spare;
+                spare = null;
+                t.Waking = false;
+                t.View = sv;
+                t.BootScriptId = sv.AccessibleDescription;
+                t.PipScriptId = sv.Tag as string;
+                sv.Tag = null;
+                Hook(t, sv.CoreWebView2);
+                HookKeys(sv);
+                await AddStoreScript(sv.CoreWebView2);
+                ApplyLayout();
+                SendState();
+                _ = PrepareSpare();
+                return;
+            }
+
             bool internalPage = t.Url.StartsWith("mica://");
             var v = new WebView2 { Visible = false, DefaultBackgroundColor = internalPage ? pageBg : Color.White };
             Controls.Add(v);
@@ -243,14 +371,11 @@ namespace Mica
             t.View = v;
             t.Suspended = false;
             var c = v.CoreWebView2;
-            c.SetVirtualHostNameToFolderMapping(UiHost, uiDir, CoreWebView2HostResourceAccessKind.Allow);
-            c.SetVirtualHostNameToFolderMapping("mica-wall.local", Store.WallDir, CoreWebView2HostResourceAccessKind.DenyCors);
-            c.Settings.AreDevToolsEnabled = true;
-            c.Settings.IsStatusBarEnabled = true;
-            c.Settings.IsPasswordAutosaveEnabled = true;
-            c.Settings.IsGeneralAutofillEnabled = true;
+            SetupPageView(c);
             Hook(t, c);
             HookKeys(v);
+            await ApplyBootScript(v, t);
+            await AddStoreScript(c);
             if (store.B("pipButton") && pipScript.Length > 0)
                 t.PipScriptId = await c.AddScriptToExecuteOnDocumentCreatedAsync(pipScript);
 
@@ -258,6 +383,12 @@ namespace Mica
             else c.Navigate(ToNavigable(t.Url));
             ApplyLayout();
             SendState();
+            _ = PrepareSpare();
+        }
+
+        async Task AddStoreScript(CoreWebView2 c)
+        {
+            if (storeScript.Length > 0) try { await c.AddScriptToExecuteOnDocumentCreatedAsync(storeScript); } catch { }
         }
 
         /// <summary>Private windows get an InPrivate profile: no cookies/cache/history survive.</summary>
@@ -296,6 +427,7 @@ namespace Mica
             c.HistoryChanged += (s, e) => SendState();
             c.NewWindowRequested += async (s, e) =>
             {
+                if (QuietTab(e)) { e.Handled = true; return; }
                 var d = e.GetDeferral();
                 var nt = new BrowserTab { Url = e.Uri, Title = "Loading…" };
                 tabs.Insert(tabs.IndexOf(t) + 1, nt);
@@ -306,7 +438,16 @@ namespace Mica
             c.IsMutedChanged += (s, e) => { t.Muted = c.IsMuted; SendState(); };
             c.ContainsFullScreenElementChanged += (s, e) => SetFullscreen(t, c.ContainsFullScreenElement);
             c.ContextMenuRequested += (s, e) => PageContextMenu(t, e);
-            c.WebMessageReceived += (s, e) => { if (e.Source.StartsWith(PagesUrl)) OnPageMessage(t, J.Obj(e.WebMessageAsJson)); };
+            c.WebMessageReceived += (s, e) =>
+            {
+                if (e.Source.StartsWith(PagesUrl)) OnPageMessage(t, J.Obj(e.WebMessageAsJson));
+                else if (e.Source.StartsWith("https://chromewebstore.google.com/")) OnWebStoreMessage(t, J.Obj(e.WebMessageAsJson));
+            };
+            c.ProcessFailed += (s, e) =>
+            {
+                if (e.ProcessFailedKind == CoreWebView2ProcessFailedKind.RenderProcessExited || e.ProcessFailedKind == CoreWebView2ProcessFailedKind.RenderProcessUnresponsive)
+                    BeginInvoke(new Action(() => { t.Loading = false; SendState(); }));
+            };
             t.View.GotFocus += (s, e) =>
             {
                 if (splitA != null && (t == splitA || t == splitB) && active != t) { active = t; SendState(); }
@@ -328,6 +469,7 @@ namespace Mica
             Text = t.Title + (Incognito ? " - Mica (Private)" : " - Mica");
             ApplyLayout();
             SendState();
+            if (devOpen && devTab != t && t.View != null) _ = OpenDevTools(t);
             if (t.Url == "mica://newtab") { PostUi(new { type = "focusAddress" }); ui?.Focus(); }
             else if (!overlay) t.View?.Focus();
         }
@@ -372,6 +514,7 @@ namespace Mica
             foreach (var t in tabs.ToList())
             {
                 if (t.View == null || t == active || t == splitA || t == splitB || t.Audible) continue;
+                if (t.Url.StartsWith("mica://")) continue; // Mica's own pages are tiny; keep them instant
                 if (mins > 0 && (DateTime.Now - t.LastActive).TotalMinutes >= mins) { Sleep(t); continue; }
                 if (!t.Suspended && (DateTime.Now - t.HiddenSince).TotalSeconds > 30)
                 {
@@ -423,6 +566,11 @@ namespace Mica
             {
                 if (aiOpen && rectAi.Width > 0) { Place(ai, rectAi); ai.Visible = true; }
                 else ai.Visible = false;
+            }
+            if (dev != null)
+            {
+                if (devOpen && rectDev.Width > 0) { if (dev.Bounds != rectDev) dev.Bounds = rectDev; dev.Visible = true; }
+                else dev.Visible = false;
             }
             if (overlay) ui.BringToFront(); else ui.SendToBack();
         }
@@ -524,6 +672,7 @@ namespace Mica
             if (i >= 0) { hash = n.Substring(i); n = n.Substring(0, i); }
             switch (n)
             {
+                case "extensions": return PagesUrl + "extensions.html";
                 case "history": return PagesUrl + "library.html#history";
                 case "bookmarks": return PagesUrl + "library.html#bookmarks";
                 case "settings": return PagesUrl + "settings.html" + hash;
@@ -541,6 +690,7 @@ namespace Mica
                 var name = Path.GetFileNameWithoutExtension(uri.AbsolutePath);
                 if (name == "library") return uri.Fragment == "#bookmarks" ? "mica://bookmarks" : "mica://history";
                 if (name == "settings") return "mica://settings";
+                if (name == "extensions") return "mica://extensions";
                 return "mica://" + name;
             }
             catch { return u; }
@@ -625,12 +775,13 @@ namespace Mica
                             muted = t.Muted,
                             canBack = cw != null && cw.CanGoBack,
                             canForward = cw != null && cw.CanGoForward,
-                            bookmarked = store.IsBookmarked(cw?.Source ?? t.Url),
+                            bookmarked = store.IsBookmarked(BookmarkKey(t)),
                         };
                     }).ToList(),
                     activeId = active?.Id ?? 0,
                     split = splitA != null ? new { a = splitA.Id, b = splitB.Id } : null,
                     ai = aiOpen,
+                    devtools = devOpen,
                     maximized = WindowState == FormWindowState.Maximized,
                     fullscreen,
                     incognito = Incognito,
@@ -641,6 +792,7 @@ namespace Mica
 
         void SendSettings()
         {
+            RefreshBootScripts();
             var msg = new { type = "settings", settings = store.Settings };
             PostUi(msg);
             foreach (var t in tabs) if (t.View != null && t.Url.StartsWith("mica://")) Post(t, msg);

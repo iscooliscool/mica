@@ -26,18 +26,19 @@ Most browsers assume you have plenty of memory. Mica is designed for PCs with **
 
 | | |
 |---|---|
-| 🎨 **Themes** | Clean, Midnight, Liquid Glass, Dark Glow, Windows 11 and Retro, any accent color, or build your own (colors, roundness, glass blur, spacing, font). |
+| 🎨 **Themes** | Clean, Graphite, Midnight Sky, Liquid Glass, Dark Glow, Windows 11 and Retro, any accent color, or build your own (colors, roundness, glass blur, spacing, font). |
 | 🗂 **Tabs your way** | Tabs on top or down the side. Drag to reorder, right-click for more. |
 | ✦ **Free AI helper** | Optional side panel with **Duck.ai** (Claude, GPT-4o mini, Llama and more) or **ChatGPT**. No login, no cost. Summarize the page, or highlight text → right-click → *Ask Mica AI*. Off by default; uses no memory when closed. |
 | 🕶 **Private windows** | `Ctrl+Shift+N`. Nothing is saved, and everything is wiped when you close the window. |
 | ◫ **Split screen** | Two sites side by side, with a draggable divider. |
 | 📷 **Screenshots** | Visible area or the full page, saved and copied to the clipboard. |
 | ⧉ **Picture-in-picture** | A small *Pop out* button appears at the top of videos. |
-| 🛠 **Inspect** | Full Chromium developer tools: `F12`, `Ctrl+Shift+I`, or right-click → Inspect. |
+| 🛠 **Inspect** | Chromium developer tools docked in a side panel: `F12`, `Ctrl+Shift+I`, or right-click → Inspect. |
+| 🧩 **Extensions** | Install from the Chrome Web Store (*Add to Mica*), or bring yours over from Chrome, Edge, Brave, Vivaldi or Opera. |
 | 🏠 **New tab page** | Clock, weather (no account needed), shortcuts, your own wallpaper. |
-| ⭐ **Bookmarks & history** | With a bookmarks bar, and one-click import from Chrome or Edge. |
+| ⭐ **Bookmarks & history** | A bookmarks bar with folders, and one-click import of bookmarks, history and extensions from Chrome, Edge, Brave, Vivaldi or Opera (any profile). |
 | 🧭 **Welcome tour** | Pick your look, layout and speed settings, then a quick guided tour of the real buttons. |
-| 🔄 **Updates** | Checks GitHub Releases and always asks before updating. |
+| 🔄 **Updates** | Checks GitHub Releases and asks before updating, or turn on *Update automatically*. |
 
 <p>
   <img src="docs/screenshot-welcome.png" width="49%" alt="Welcome tour">
@@ -48,7 +49,7 @@ Most browsers assume you have plenty of memory. Mica is designed for PCs with **
 
 ## Requirements
 
-- Windows 10 or 11 (32-bit, 64-bit or ARM)
+- Windows 10 or 11 (32-bit, 64-bit or ARM). The normal installer works everywhere; `Setup-32bit.exe` runs Mica as a 32-bit app, which uses a little less memory on PCs with 2 GB of RAM or less.
 - .NET Framework 4.6.2 or newer (built into every Windows 10 since 2016, and Windows 11)
 - Microsoft WebView2 Runtime (already on almost every Windows 10/11 PC; the installer adds it if it's missing)
 

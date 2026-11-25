@@ -16,7 +16,7 @@ namespace Mica
         public DateTime HiddenSince = DateTime.Now;
         public bool Suspended;
         public WebView2 View;
-        public string PipScriptId;
+        public string PipScriptId, BootScriptId;
         public bool Waking;
         public bool Asleep => View == null;
     }

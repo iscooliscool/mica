@@ -14,7 +14,9 @@ namespace Mica
 
         public static Dictionary<string, object> Obj(string json)
         {
-            try { return S.Deserialize<Dictionary<string, object>>(json) ?? new Dictionary<string, object>(); }
+            // DeserializeObject gives object[] for every nested list (Deserialize<T> gives ArrayList,
+            // which the rest of Mica doesn't expect).
+            try { return S.DeserializeObject(json) as Dictionary<string, object> ?? new Dictionary<string, object>(); }
             catch { return new Dictionary<string, object>(); }
         }
 

@@ -28,8 +28,8 @@ namespace Mica
             catch { }
             s.Slow = s.RamGB <= 3.2 || s.Cores <= 2;
             s.RecommendSleep = s.RamGB <= 2.5 ? 1 : s.RamGB <= 4.5 ? 3 : s.RamGB <= 8.5 ? 5 : 15;
-            s.HasChrome = File.Exists(Importer.BookmarkFile("chrome"));
-            s.HasEdge = File.Exists(Importer.BookmarkFile("edge"));
+            s.HasChrome = Importer.HasBrowser("chrome");
+            s.HasEdge = Importer.HasBrowser("edge");
             return s;
         }
     }

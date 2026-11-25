@@ -27,13 +27,22 @@
   section > h2 { font-size: 22px; letter-spacing: -.015em; margin: 0 0 4px; }
   section > p.lead { color: var(--dim); margin: 0 0 16px; }
   .card { background: var(--surface-2); border: 1px solid var(--border); border-radius: var(--radius-lg); padding: 4px 20px; }
-  body.glass .card { background: rgba(255,255,255,.66); backdrop-filter: blur(20px); }
+  body.glass .card { background: var(--glass-bg); backdrop-filter: blur(var(--blur)) saturate(160%); }
   .row { display: flex; align-items: center; justify-content: space-between; gap: 18px; padding: 15px 0; min-height: 62px; }
   .row + .row { border-top: 1px solid var(--border); }
   .row .t { font-weight: 600; }
   .row .d { color: var(--dim); font-size: 13px; margin-top: 2px; line-height: 1.45; }
   .row .ctl { flex: none; display: flex; align-items: center; gap: 8px; }
   .row.hidden-by-find { display: none; }
+  .imp-kinds { display: flex; gap: 14px; margin-top: 8px; flex-wrap: wrap; }
+  .imp-kinds label { display: inline-flex; align-items: center; gap: 6px; font-size: 12.5px; color: var(--text); cursor: pointer; }
+  .imp-kinds input { accent-color: var(--accent); width: 15px; height: 15px; margin: 0; }
+  section { animation: pageIn .45s cubic-bezier(.2,.8,.2,1) both; }
+  section:nth-of-type(2) { animation-delay: .05s; } section:nth-of-type(3) { animation-delay: .1s; } section:nth-of-type(n+4) { animation-delay: .15s; }
+  body.rendered section { animation: none; }
+  .tcard { transition: border-color .15s, box-shadow .2s, transform .2s cubic-bezier(.2,.8,.2,1); }
+  .tcard:hover { transform: translateY(-2px); }
+  .swatch { transition: transform .18s cubic-bezier(.2,.8,.2,1); } .swatch:hover { transform: scale(1.12); }
   .row.col { flex-direction: column; align-items: stretch; }
   .themes { display: grid; grid-template-columns: repeat(auto-fill, minmax(150px, 1fr)); gap: 12px; padding: 4px 0; }
   .tcard { border: 1.5px solid var(--border); border-radius: calc(var(--radius) + 4px); padding: 8px; background: transparent; cursor: pointer; text-align: left; transition: border-color .15s, box-shadow .15s; }
@@ -85,6 +94,8 @@
   <a href="#privacy" data-s="privacy"><i data-icon="shield"></i><span>Privacy</span></a>
   <a href="#videos" data-s="videos"><i data-icon="pip"></i><span>Videos</span></a>
   <a href="#import" data-s="import"><i data-icon="import"></i><span>Import &amp; default</span></a>
+  <a href="#extensions" data-s="extensions"><i data-icon="puzzle"></i><span>Extensions</span></a>
+  <a href="#developer" data-s="developer"><i data-icon="code"></i><span>Developer</span></a>
   <a href="#shortcuts" data-s="shortcuts"><i data-icon="keyboard"></i><span>Keyboard shortcuts</span></a>
   <a href="#about" data-s="about"><i data-icon="info"></i><span>About &amp; updates</span></a>
 </nav>
@@ -95,7 +106,7 @@
 const $ = (s, r) => (r || document).querySelector(s);
 const $$ = (s, r) => [...(r || document).querySelectorAll(s)];
 const esc = s => Mica.esc(s);
-let startPotato = null, mem = null;
+let startPotato = null, startDev = null, mem = null, sources = null, importing = {}, extCount = null;
 
 const sw = (key, on) => '<label class="switch"><input type="checkbox" data-key="' + key + '"' + (on ? ' checked' : '') + '><span></span></label>';
 const row = (t, d, ctl, extra) => '<div class="row ' + (extra || '') + '" data-find="' + esc((t + ' ' + (d || '')).toLowerCase()) + '"><div><div class="t">' + t + '</div>' + (d ? '<div class="d">' + d + '</div>' : '') + '</div><div class="ctl">' + ctl + '</div></div>';
@@ -103,7 +114,7 @@ const seg = (key, cur, opts) => '<div class="segmented" data-seg="' + key + '">'
 
 function render() {
   const s = Mica.settings, sys = Mica.sys;
-  if (startPotato === null) startPotato = !!s.potato;
+  if (startPotato === null) { startPotato = !!s.potato; startDev = s.devtoolsPanel !== false; }
   const T = MicaThemes.THEMES;
   const rec = sys.recommendSleep || 5;
   const sleepOpts = [[1, '1 min'], [3, '3 min'], [5, '5 min'], [15, '15 min'], [30, '30 min'], [0, 'Never']].map(o => [o[0], o[1] + (o[0] === rec ? '<span class="rec">★</span>' : '')]);
@@ -183,10 +194,28 @@ function render() {
   '</div></section>' +
 
   // ---------------- import
-  '<section id="import"><h2>Import &amp; default browser</h2><div class="card">' +
-  row('Import bookmarks from Chrome', sys.hasChrome ? 'Copies your Chrome bookmarks into Mica.' : 'Chrome wasn\'t found on this PC.', '<button class="btn sm" data-import="chrome"' + (sys.hasChrome ? '' : ' disabled') + '>' + icon('import') + 'Import</button>') +
-  row('Import bookmarks from Edge', sys.hasEdge ? 'Copies your Edge bookmarks into Mica.' : 'Edge wasn\'t found on this PC.', '<button class="btn sm" data-import="edge"' + (sys.hasEdge ? '' : ' disabled') + '>' + icon('import') + 'Import</button>') +
+  '<section id="import"><h2>Import &amp; default browser</h2><p class="lead">Bring your bookmarks, history and extensions over from your other browsers. Every profile is listed.</p><div class="card">' +
+  (sources === null ? row('Looking for other browsers…', '', '')
+    : !sources.length ? row('No other browsers found', 'Chrome, Edge, Brave, Vivaldi and Opera are supported.', '')
+    : sources.map((x, i) => row(esc(x.browser) + (x.profile ? ' &middot; ' + esc(x.profile) : ''),
+        '<span id="imp-st-' + i + '">' + (importing[x.id] || [x.bookmarks ? 'Bookmarks' : '', x.history ? 'History' : '', x.extensions ? x.extensions + ' extensions' : ''].filter(Boolean).join(' · ')) + '</span>' +
+        '<div class="imp-kinds">' + (x.bookmarks ? '<label><input type="checkbox" data-k="bookmarks" data-i="' + i + '" checked>Bookmarks</label>' : '') +
+        (x.history ? '<label><input type="checkbox" data-k="history" data-i="' + i + '" checked>History</label>' : '') +
+        (x.extensions ? '<label><input type="checkbox" data-k="extensions" data-i="' + i + '" checked>Extensions</label>' : '') + '</div>',
+        '<button class="btn sm primary" data-src="' + i + '">' + icon('import') + 'Import</button>')).join('')) +
+  row('Passwords and cookies', 'These can\'t be copied: Chrome and Edge lock them with Windows app-bound encryption so no other program can read them (it\'s what stops password-stealing malware). You\'ll just sign in to your sites once. Tip: Chrome can export passwords to a file from chrome://password-manager/settings.', '') +
   row('Default browser', 'Make links from other apps open in Mica.', '<button class="btn sm" data-act="setDefault">Make default</button>') +
+  '</div></section>' +
+
+  // ---------------- extensions
+  '<section id="extensions"><h2>Extensions</h2><p class="lead">Mica runs Chrome extensions. Each one uses some memory, so on older PCs add only the ones you need.</p><div class="card">' +
+  row('Your extensions', extCount === null ? 'Add, turn off or remove extensions.' : extCount + ' installed', '<button class="btn sm" data-act="manageExt">' + icon('puzzle') + 'Manage</button>') +
+  row('Chrome Web Store', 'Find an extension and click <b>Add to Mica</b> in the corner of its page.', '<button class="btn sm" data-act="webstore">' + icon('store') + 'Open the store</button>') +
+  '</div></section>' +
+
+  // ---------------- developer
+  '<section id="developer"><h2>Developer</h2><div class="card">' +
+  row('Docked Chrome DevTools', 'F12, Ctrl+Shift+I and right-click &rarr; Inspect open the real Chrome DevTools in a side panel. Turn off to use the separate window instead. Needs a restart.', sw('devtoolsPanel', s.devtoolsPanel !== false)) +
   '</div></section>' +
 
   // ---------------- keyboard
@@ -198,20 +227,22 @@ function render() {
   // ---------------- about
   '<section id="about"><h2>About &amp; updates</h2><div class="card">' +
   row('Mica ' + esc(sys.version || ''), 'Chromium engine ' + esc((sys.engine || '').split(' ')[0]) + ' · ' + (sys.is64 ? '64-bit' : '32-bit') + ' · Free and open source (MIT)', '<button class="btn sm" data-act="github">' + icon('external') + 'GitHub</button>') +
-  row('Check for updates automatically', 'Mica always asks before installing anything.', sw('updateCheck', s.updateCheck !== false)) +
+  row('Check for updates automatically', 'Looks for a new version of Mica once a day.', sw('updateCheck', s.updateCheck !== false)) +
+  row('Update automatically', 'New versions download quietly and install the next time you close Mica. When this is off, Mica asks first.', sw('autoUpdate', !!s.autoUpdate)) +
   row('Check now', '<span id="updStatus"></span>', '<button class="btn sm" data-act="checkUpdate">' + icon('update') + 'Check</button>') +
   row('Welcome tour', 'See the setup and tour again.', '<button class="btn sm" data-act="tour">' + icon('compass') + 'Start tour</button>') +
   row('Mica\'s data folder', 'Settings, bookmarks and history are stored here.', '<button class="btn sm" data-act="dataFolder">' + icon('folder') + 'Open</button>') +
   '</div></section>';
 
   hydrateIcons($('#content'));
+  setTimeout(() => document.body.classList.add('rendered'), 700);
   $$('[data-prev]').forEach(p => {
     const k = p.dataset.prev;
     MicaThemes.apply(k === 'custom' ? Object.assign({}, s, { theme: 'custom', custom: s.custom || { base: 'clean' } }) : { theme: k, accent: T[k].accent }, { el: p });
   });
   wire();
   applyFind();
-  $('#restartBar').classList.toggle('on', !!s.potato !== startPotato);
+  $('#restartBar').classList.toggle('on', !!s.potato !== startPotato || (s.devtoolsPanel !== false) !== startDev);
   requestAnimationFrame(spy);
 }
 
@@ -262,7 +293,14 @@ function wire() {
     b.disabled = true;
     Mica.send({ cmd: 'clearData', what });
   }));
-  $$('[data-import]').forEach(b => b.addEventListener('click', () => { b.disabled = true; Mica.send({ cmd: 'import', from: b.dataset.import }); }));
+  $$('[data-src]').forEach(b => b.addEventListener('click', () => {
+    const i = +b.dataset.src, x = sources[i];
+    const kind = k => { const c = document.querySelector('[data-k="' + k + '"][data-i="' + i + '"]'); return !!(c && c.checked); };
+    importing[x.id] = 'Copying…';
+    b.disabled = true; b.textContent = 'Importing…';
+    $('#imp-st-' + i).textContent = 'Copying…';
+    Mica.send({ cmd: 'import', source: x.id, bookmarks: kind('bookmarks'), history: kind('history'), extensions: kind('extensions') });
+  }));
   $$('[data-act]').forEach(b => b.addEventListener('click', () => {
     switch (b.dataset.act) {
       case 'wallPick': Mica.send({ cmd: 'pickWallpaper' }); break;
@@ -273,6 +311,8 @@ function wire() {
       case 'checkUpdate': $('#updStatus').textContent = 'Checking…'; Mica.send({ cmd: 'checkUpdate' }); break;
       case 'tour': Mica.send({ cmd: 'startTour' }); break;
       case 'dataFolder': Mica.send({ cmd: 'openFolder', which: 'data' }); break;
+      case 'manageExt': location.href = 'extensions.html'; break;
+      case 'webstore': Mica.send({ cmd: 'openUrl', url: 'https://chromewebstore.google.com/' }); break;
     }
   }));
 }
@@ -305,6 +345,8 @@ $('#restartBtn').addEventListener('click', () => Mica.send({ cmd: 'restart' }));
 Mica.on('init', () => {
   render();
   Mica.send({ cmd: 'memory' });
+  Mica.send({ cmd: 'importSources' });
+  Mica.send({ cmd: 'extList' });
   if (location.hash) setTimeout(() => { const el = document.getElementById(location.hash.slice(1)); if (el) el.scrollIntoView(); spy(); }, 50);
   spy();
 });
@@ -315,10 +357,17 @@ Mica.on('memory', m => {
   if (a) a.textContent = m.mb + ' MB';
   if (b) b.textContent = m.awake + ' / ' + m.asleep;
 });
+Mica.on('importSources', m => { sources = m.list || []; rerender(); });
+Mica.on('extensions', m => { extCount = (m.list || []).length; rerender(); });
 Mica.on('imported', m => {
-  Mica.toast(m.count > 0 ? 'Imported ' + m.count + ' bookmarks' : m.count === 0 ? 'Nothing new to import' : 'Couldn\'t find bookmarks to import');
-  $$('[data-import]').forEach(b => b.disabled = false);
+  const text = m.error ? 'Couldn\'t import: ' + m.error
+    : 'Imported ' + m.bookmarks + ' bookmarks, ' + m.history + ' history items and ' + m.extensions + ' extensions' + (m.extensionsFailed ? ' (' + m.extensionsFailed + ' extensions aren\'t supported)' : '');
+  if (m.source) importing[m.source] = text;
+  Mica.toast(m.error ? 'Import failed' : 'Import finished');
+  Mica.send({ cmd: 'extList' });
+  rerender();
 });
+function rerender() { if (!Mica.ready) return; const y = scrollY; render(); scrollTo(0, y); }
 Mica.on('cleared', m => { Mica.toast('Cleared'); $$('[data-clear]').forEach(b => b.disabled = false); });
 Mica.on('updateResult', m => {
   $('#updStatus').textContent = m.error ? 'Couldn\'t check: ' + m.error : m.version ? 'Version ' + m.version + ' is available. Click the update button in the toolbar.' : 'You\'re up to date (' + m.current + ').';

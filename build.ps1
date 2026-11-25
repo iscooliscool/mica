@@ -1,5 +1,9 @@
-# Builds Mica and its custom installer.  Usage:  .\build.ps1            (version from Mica.csproj)
-#                                               .\build.ps1 -Version 1.0.1
+# Builds Mica and its custom installers.
+#   .\build.ps1                  (version from Mica.csproj)
+#   .\build.ps1 -Version 1.1.0
+# Makes two installers in dist\:
+#   Mica-<v>-Setup.exe         runs as 64-bit on 64-bit Windows and 32-bit on 32-bit Windows
+#   Mica-<v>-Setup-32bit.exe   always runs Mica as a 32-bit app (a little less memory, for very old PCs)
 param([string]$Version = "")
 $ErrorActionPreference = "Stop"
 Set-Location $PSScriptRoot
@@ -16,24 +20,7 @@ if ($Version) {
 $dotnet = (Get-Command dotnet -ErrorAction SilentlyContinue).Source
 if (-not $dotnet) { $dotnet = "$env:ProgramFiles\dotnet\dotnet.exe" }
 
-# 1. the browser
-& $dotnet build $projects[0] -c Release -nologo -v q
-if ($LASTEXITCODE) { throw "Mica build failed" }
-
-# 2. pack the browser into the installer's payload
-$bin = "src\Mica\bin\Release\net462"
-$stage = "src\MicaSetup\obj\stage"
-if (Test-Path $stage) { Remove-Item $stage -Recurse -Force }
-New-Item -ItemType Directory -Force $stage | Out-Null
-Copy-Item "$bin\Mica.exe", "$bin\Mica.exe.config", "$bin\Microsoft.Web.WebView2.Core.dll", "$bin\Microsoft.Web.WebView2.WinForms.dll" $stage
-Copy-Item "$bin\runtimes", "$bin\ui" $stage -Recurse
-$zip = "src\MicaSetup\payload\app.zip"
-New-Item -ItemType Directory -Force (Split-Path $zip) | Out-Null
-if (Test-Path $zip) { Remove-Item $zip }
-Add-Type -AssemblyName System.IO.Compression.FileSystem
-[IO.Compression.ZipFile]::CreateFromDirectory((Resolve-Path $stage), (Join-Path (Resolve-Path (Split-Path $zip)) "app.zip"), [IO.Compression.CompressionLevel]::Optimal, $false)
-
-# 3. Microsoft's small WebView2 bootstrapper, for PCs that don't have WebView2 yet
+# Microsoft's small WebView2 bootstrapper, for PCs that don't have WebView2 yet
 $boot = "installer\redist\MicrosoftEdgeWebview2Setup.exe"
 if (-not (Test-Path $boot)) {
     New-Item -ItemType Directory -Force (Split-Path $boot) | Out-Null
@@ -41,10 +28,34 @@ if (-not (Test-Path $boot)) {
 }
 if ((Get-AuthenticodeSignature $boot).Status -ne 'Valid') { Remove-Item $boot; throw "WebView2 bootstrapper signature check failed" }
 
-# 4. the installer (one self-contained .exe)
-& $dotnet build $projects[1] -c Release -nologo -v q
-if ($LASTEXITCODE) { throw "Setup build failed" }
+Add-Type -AssemblyName System.IO.Compression.FileSystem
 New-Item -ItemType Directory -Force dist | Out-Null
-$out = "dist\Mica-$Version-Setup.exe"
-Copy-Item "src\MicaSetup\bin\Release\net462\MicaSetup.exe" $out -Force
-Write-Host ("Built {0} ({1:N1} MB)" -f $out, ((Get-Item $out).Length / 1MB))
+
+function Build-Flavor([string]$platform, [string]$suffix) {
+    $outDir = "bin\$platform\"
+    # 1. the browser
+    & $dotnet build $projects[0] -c Release -nologo -v q "-p:PlatformTarget=$platform" "-p:OutputPath=$outDir" "-p:IntermediateOutputPath=obj\$platform\"
+    if ($LASTEXITCODE) { throw "Mica build failed ($platform)" }
+    $bin = "src\Mica\$outDir"
+
+    # 2. pack it into the installer's payload
+    $stage = "src\MicaSetup\obj\stage"
+    if (Test-Path $stage) { Remove-Item $stage -Recurse -Force }
+    New-Item -ItemType Directory -Force $stage | Out-Null
+    Copy-Item "$bin\Mica.exe", "$bin\Mica.exe.config", "$bin\Microsoft.Web.WebView2.Core.dll", "$bin\Microsoft.Web.WebView2.WinForms.dll" $stage
+    Copy-Item "$bin\runtimes", "$bin\ui" $stage -Recurse
+    $zipDir = "src\MicaSetup\payload"
+    New-Item -ItemType Directory -Force $zipDir | Out-Null
+    if (Test-Path "$zipDir\app.zip") { Remove-Item "$zipDir\app.zip" }
+    [IO.Compression.ZipFile]::CreateFromDirectory((Resolve-Path $stage), (Join-Path (Resolve-Path $zipDir) "app.zip"), [IO.Compression.CompressionLevel]::Optimal, $false)
+
+    # 3. the installer (one self-contained .exe)
+    & $dotnet build $projects[1] -c Release -nologo -v q "-p:MicaBin=..\Mica\$outDir" "-p:LoaderBin=..\Mica\bin\AnyCPU\" "-p:IntermediateOutputPath=obj\$platform\"
+    if ($LASTEXITCODE) { throw "Setup build failed ($platform)" }
+    $out = "dist\Mica-$Version-Setup$suffix.exe"
+    Copy-Item "src\MicaSetup\bin\Release\net462\MicaSetup.exe" $out -Force
+    Write-Host ("Built {0} ({1:N1} MB)" -f $out, ((Get-Item $out).Length / 1MB))
+}
+
+Build-Flavor "AnyCPU" ""
+Build-Flavor "x86" "-32bit"

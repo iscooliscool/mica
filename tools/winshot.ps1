@@ -12,7 +12,7 @@ public static class W {
 }
 "@
 [W]::SetProcessDPIAware() | Out-Null
-$p = Get-Process $Name -ErrorAction SilentlyContinue | Where-Object { $_.MainWindowHandle -ne 0 } | Select-Object -First 1
+$p = Get-Process $Name -ErrorAction SilentlyContinue | Where-Object { $_.MainWindowHandle -ne 0 -and ($_.Path -like "*\Code\Mica\src\*" -or $_.Path -like "*scratchpad*" -or $Name -ne "Mica") } | Sort-Object StartTime -Descending | Select-Object -First 1
 if (-not $p) { Write-Error "Mica window not found"; exit 1 }
 $h = $p.MainWindowHandle
 # (no restore: keep maximized state)

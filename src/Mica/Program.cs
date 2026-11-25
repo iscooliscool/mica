@@ -12,7 +12,20 @@ namespace Mica
 {
     static class Program
     {
-        static string PipeName => "Mica.Browser." + Environment.UserName;
+        // A separate data folder (MICA_DATA, used for tests and portable copies) is a separate instance.
+        static string InstanceKey
+        {
+            get
+            {
+                var d = Environment.GetEnvironmentVariable("MICA_DATA");
+                if (string.IsNullOrEmpty(d)) return "";
+                uint h = 2166136261;
+                foreach (char ch in d.ToLowerInvariant()) { h ^= ch; h *= 16777619; }
+                return "." + h.ToString("x8");
+            }
+        }
+        public static string PendingInstaller;
+        static string PipeName => "Mica.Browser." + Environment.UserName + InstanceKey;
 
         [STAThread]
         static void Main(string[] args)
@@ -20,7 +33,7 @@ namespace Mica
             try { Native.SetProcessDpiAwarenessContext(new IntPtr(-4)); } catch { }
 
             // Only one Mica window: a second launch (e.g. clicking a link) hands its URLs to the first.
-            var mutex = new Mutex(true, "Local\\Mica.Browser.Instance", out bool first);
+            var mutex = new Mutex(true, "Local\\Mica.Browser.Instance" + InstanceKey, out bool first);
             if (!first && SendToRunning(args)) return;
 
             try { CoreWebView2Environment.GetAvailableBrowserVersionString(); }
@@ -37,6 +50,9 @@ namespace Mica
             OpenWindow(args.Where(a => !a.StartsWith("--")).ToArray(), false);
             StartPipeServer();
             Application.Run(context);
+            // An update downloaded in the background installs once Mica is closed.
+            if (PendingInstaller != null && File.Exists(PendingInstaller))
+                try { Process.Start(PendingInstaller, "/silent /norelaunch"); } catch { }
             GC.KeepAlive(mutex);
         }
 

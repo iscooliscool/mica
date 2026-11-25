@@ -37,12 +37,24 @@
   }
   #q:focus { border-color: var(--accent); box-shadow: 0 0 0 4px var(--accent-soft), 0 8px 30px rgba(10,14,30,.08); }
   form#search > .i { position: absolute; left: 20px; top: 50%; margin-top: -10px; width: 20px; height: 20px; color: var(--dim); }
-  body.glass #q, body.has-wall #q { background: rgba(255,255,255,.72); backdrop-filter: blur(20px) saturate(170%); border-color: rgba(255,255,255,.8); color: #121628; }
-  body.glass #q::placeholder, body.has-wall #q::placeholder { color: #4c5375; }
+  body.glass #q { background: var(--glass-strong); backdrop-filter: blur(var(--blur)) saturate(170%); border-color: var(--glass-edge); }
+  body.has-wall #q { background: rgba(255,255,255,.72); backdrop-filter: blur(20px) saturate(170%); border-color: rgba(255,255,255,.8); color: #121628; }
+  body.has-wall #q::placeholder { color: #4c5375; }
   body.glow #q:focus { box-shadow: 0 0 0 1px var(--accent), 0 0 34px rgba(var(--accent-rgb), .35); }
 
-  #tiles { display: grid; grid-template-columns: repeat(auto-fill, 104px); justify-content: center; gap: 8px; width: min(760px, 100%); margin-top: 30px; }
-  .tile { position: relative; display: flex; flex-direction: column; align-items: center; gap: 10px; padding: 14px 6px 10px; border-radius: calc(var(--radius) + 4px); text-decoration: none; color: var(--text); cursor: pointer; transition: background .15s, transform .15s; }
+  /* flex + center: however many shortcuts there are, they stay centered */
+  #tiles { display: flex; flex-wrap: wrap; justify-content: center; gap: 8px; width: min(760px, 100%); margin-top: 30px; }
+  .tile { position: relative; width: 104px; display: flex; flex-direction: column; align-items: center; gap: 10px; padding: 14px 6px 10px; border-radius: calc(var(--radius) + 4px); text-decoration: none; color: var(--text); cursor: pointer; transition: background .15s, transform .2s cubic-bezier(.2,.8,.2,1); }
+  .tile .ic { transition: transform .25s cubic-bezier(.2,.8,.2,1), box-shadow .25s; }
+  .tile:hover .ic { transform: scale(1.08); box-shadow: 0 0 0 1px var(--border), 0 10px 24px rgba(var(--accent-rgb), .22); }
+  .tile.add:hover .ic { transform: rotate(90deg) scale(1.05); }
+  #clock, #meta, form#search, #tiles .tile, #customize, #private { animation: pageIn .5s cubic-bezier(.2,.8,.2,1) both; }
+  #meta { animation-delay: .05s; } form#search { animation-delay: .1s; } #customize { animation-delay: .3s; }
+  #tiles .tile:nth-child(1) { animation-delay: .14s; } #tiles .tile:nth-child(2) { animation-delay: .17s; } #tiles .tile:nth-child(3) { animation-delay: .2s; }
+  #tiles .tile:nth-child(4) { animation-delay: .23s; } #tiles .tile:nth-child(5) { animation-delay: .26s; } #tiles .tile:nth-child(6) { animation-delay: .29s; }
+  #tiles .tile:nth-child(n+7) { animation-delay: .32s; }
+  #tiles.ready .tile { animation: none; }
+  @media print { #tiles .tile.add, #customize, #weather { display: none !important; } }
   .tile:hover { background: var(--hover); transform: translateY(-2px); }
   .tile .ic { width: 52px; height: 52px; border-radius: 50%; background: var(--surface-2); display: grid; place-items: center; box-shadow: 0 0 0 1px var(--border), 0 4px 14px rgba(10,14,30,.06); overflow: hidden; }
   .tile .ic img { width: 26px; height: 26px; }
@@ -54,13 +66,13 @@
   .tile.add .ic { background: transparent; box-shadow: inset 0 0 0 1.5px var(--border); color: var(--dim); }
   body.has-wall .tile { color: #fff; text-shadow: 0 1px 8px rgba(0,0,0,.4); }
   body.has-wall .tile:hover { background: rgba(255,255,255,.14); }
-  body.glass .tile .ic { background: rgba(255,255,255,.6); backdrop-filter: blur(16px); }
+  body.glass .tile .ic { background: var(--glass-bg); backdrop-filter: blur(var(--blur)); }
 
   #customize { position: fixed; right: 18px; bottom: 18px; }
   body.has-wall #customize .btn { background: rgba(255,255,255,.2); color: #fff; border-color: rgba(255,255,255,.3); backdrop-filter: blur(14px); }
 
   .sheet { position: fixed; right: 18px; bottom: 66px; width: 340px; padding: 18px; border-radius: calc(var(--radius-lg) + 4px); background: var(--surface-2); border: 1px solid var(--border); box-shadow: 0 20px 60px rgba(0,0,0,.22); animation: up .2s var(--ease); max-height: calc(100vh - 90px); overflow: auto; }
-  body.glass .sheet, body.glass .dlg { background: rgba(255,255,255,.78); backdrop-filter: blur(28px) saturate(180%); }
+  body.glass .sheet, body.glass .dlg { background: var(--glass-strong); backdrop-filter: blur(28px) saturate(180%); }
   @keyframes up { from { opacity: 0; transform: translateY(8px); } }
   .sheet h3 { margin: 0 0 12px; font-size: 15px; }
   .row { display: flex; align-items: center; justify-content: space-between; gap: 12px; padding: 9px 0; }
@@ -126,7 +138,7 @@ function render() {
   // wallpaper
   const wall = $('#wall');
   if (s.wallpaper && !Mica.incognito) {
-    const url = 'https://mica-wall.local/' + encodeURIComponent(s.wallpaper);
+    const url = 'https://mica-wall.example/' + encodeURIComponent(s.wallpaper);
     if (wall.dataset.src !== url) { wall.dataset.src = url; wall.style.backgroundImage = 'url("' + url + '")'; }
     wall.classList.add('on');
     $('#dim').style.opacity = s.wallpaperDim == null ? .2 : s.wallpaperDim;
@@ -155,8 +167,10 @@ setInterval(tick, 1000 * 15);
 function iconFor(url) {
   try { return 'https://icons.duckduckgo.com/ip3/' + new URL(url).hostname + '.ico'; } catch { return ''; }
 }
+let tilesDrawn = 0;
 function renderTiles() {
   const list = Mica.settings.shortcuts || [];
+  if (++tilesDrawn > 2) $('#tiles').classList.add('ready');
   $('#tiles').innerHTML = list.map((t, i) =>
     '<a class="tile" href="' + esc(t.url) + '" data-i="' + i + '"><span class="ic"><img src="' + iconFor(t.url) + '" alt="" onerror="this.outerHTML=\'<b>' + esc((t.title || '?')[0].toUpperCase()) + '</b>\'"></span>' +
     '<span class="nm">' + esc(t.title) + '</span><button class="rm" title="Remove" data-rm="' + i + '">' + icon('x') + '</button></a>').join('') +

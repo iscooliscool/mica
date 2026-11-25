@@ -136,7 +136,7 @@ namespace Mica
             {
                 var p = Path.Combine(Dir, name);
                 if (!File.Exists(p)) return new List<Dictionary<string, object>>();
-                var arr = J.S.Deserialize<object[]>(File.ReadAllText(p, Encoding.UTF8));
+                var arr = J.S.DeserializeObject(File.ReadAllText(p, Encoding.UTF8)) as object[];
                 return arr?.OfType<Dictionary<string, object>>().ToList() ?? new List<Dictionary<string, object>>();
             }
             catch { return new List<Dictionary<string, object>>(); }
@@ -145,7 +145,7 @@ namespace Mica
         // ---------- history ----------
         public void AddHistory(string url, string title)
         {
-            if (string.IsNullOrEmpty(url) || url.StartsWith("https://mica.local/") || url.StartsWith("about:") || url.StartsWith("data:")) return;
+            if (string.IsNullOrEmpty(url) || url.StartsWith("https://mica.example/") || url.StartsWith("https://mica-ui.example/") || url.StartsWith("chrome-extension:") || url.StartsWith("about:") || url.StartsWith("data:")) return;
             var existing = History.FirstOrDefault(h => h.Str("url") == url);
             int visits = 1;
             if (existing != null) { visits = existing.Int("visits", 1) + 1; History.Remove(existing); if (string.IsNullOrEmpty(title)) title = existing.Str("title"); }

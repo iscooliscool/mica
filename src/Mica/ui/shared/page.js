@@ -20,6 +20,13 @@
     esc(s) { return String(s == null ? '' : s).replace(/[&<>"']/g, c => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c])); },
   };
   window.Mica = Mica;
+  // Settings are baked into the page by the browser, so it draws in the right theme immediately.
+  if (window.__micaBoot) {
+    const bt = window.__micaBoot;
+    Mica.settings = bt.settings || {}; Mica.sys = bt.sys || {}; Mica.bookmarks = bt.bookmarks || []; Mica.incognito = !!bt.incognito;
+    Mica.ready = true;
+    MicaThemes.apply(Mica.settings, { incognito: Mica.incognito });
+  }
   if (hasHost) chrome.webview.addEventListener('message', e => {
     const m = e.data || {};
     if (m.type === 'init') {
@@ -39,6 +46,7 @@
   document.addEventListener('DOMContentLoaded', () => {
     if (window.hydrateIcons) hydrateIcons();
     Mica.applyTheme();
-    Mica.send({ cmd: 'hello' });
+    if (Mica.ready) Mica.emit('init', window.__micaBoot);   // draw right away
+    Mica.send({ cmd: 'hello' });                            // and refresh from the browser
   });
 })();

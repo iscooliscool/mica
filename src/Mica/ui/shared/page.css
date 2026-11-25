@@ -68,3 +68,20 @@ body.dark .switch span { background: rgba(255,255,255,.16); }
 body.pixel .btn, body.pixel .input, body.pixel .card, body.pixel .tile .ic { border: 2px solid #05020f !important; box-shadow: 3px 3px 0 #05020f !important; border-radius: 0 !important; }
 body.noanim *, body.noanim *::before, body.noanim *::after { animation: none !important; transition: none !important; }
 body.potato * { backdrop-filter: none !important; }
+
+/* ---------- animations ---------- */
+@keyframes pageIn { from { opacity: 0; transform: translateY(10px); } }
+@keyframes popIn { from { opacity: 0; transform: scale(.94); } }
+.btn, .icon-btn, .switch span, .switch span::after, .segmented button, .input { transition: background .15s, transform .15s cubic-bezier(.2,.8,.2,1), box-shadow .2s, border-color .15s, color .15s, filter .15s; }
+.btn:hover { transform: translateY(-1px); }
+.btn:active { transform: translateY(0) scale(.97); }
+.icon-btn:hover { transform: scale(1.08); }
+html, body { transition: background-color .3s, color .3s; }
+
+/* ---------- printing Mica's own pages: keep the theme, no address/date in the corners ---------- */
+@media print {
+  @page { margin: 0; }
+  html, body { -webkit-print-color-adjust: exact; print-color-adjust: exact; }
+  body { padding: 12mm; }
+  #customize, .sheet, .toast-float, nav, .restart-bar { display: none !important; }
+}

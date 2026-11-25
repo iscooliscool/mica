@@ -19,7 +19,7 @@ namespace MicaSetup
     /// </summary>
     static class Program
     {
-        public static bool Silent, Uninstall, FromTemp;
+        public static bool Silent, Uninstall, FromTemp, NoRelaunch;
         public static string TargetDir;
 
         [DllImport("user32.dll")] static extern bool SetProcessDpiAwarenessContext(IntPtr v);
@@ -36,6 +36,7 @@ namespace MicaSetup
                 if (x == "/silent" || x == "/verysilent" || x == "/s") Silent = true;
                 else if (x == "/uninstall") Uninstall = true;
                 else if (x == "/fromtemp") FromTemp = true;
+                else if (x == "/norelaunch") NoRelaunch = true;
                 else if (x.StartsWith("/dir=")) TargetDir = a.Substring(5).Trim('"');
             }
 
@@ -85,7 +86,7 @@ namespace MicaSetup
                         if (!Installer.HasWebView2()) Installer.InstallWebView2();
                         var dir = TargetDir ?? Installer.InstalledDir() ?? Installer.DefaultDir;
                         Installer.Install(dir, Installer.HadDesktopShortcut(), null);
-                        Installer.Launch(dir);
+                        if (!NoRelaunch) Installer.Launch(dir);
                     }
                     return 0;
                 }

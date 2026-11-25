@@ -36,7 +36,7 @@ namespace Mica
                     else _ = AutoCheckUpdate();
                     break;
                 case "layout":
-                    rectA = Rect(m.Sub("a")); rectB = Rect(m.Sub("b")); rectAi = Rect(m.Sub("ai"));
+                    rectA = Rect(m.Sub("a")); rectB = Rect(m.Sub("b")); rectAi = Rect(m.Sub("ai")); rectDev = Rect(m.Sub("dev"));
                     contentRadius = m.Int("radius");
                     ApplyLayout();
                     break;
@@ -112,7 +112,32 @@ namespace Mica
 
                 // tools
                 case "bookmark": ToggleBookmarkActive(); break;
-                case "devtools": cw?.OpenDevToolsWindow(); break;
+                case "editBookmark":
+                    {
+                        var b = store.Bookmarks.FirstOrDefault(x => x.Str("url") == m.Str("url"));
+                        if (b != null)
+                        {
+                            if (!string.IsNullOrWhiteSpace(m.Str("title"))) b["title"] = m.Str("title").Trim();
+                            var nu = Resolve(m.Str("newUrl"));
+                            if (nu != null) b["url"] = nu;
+                            store.MarkDirty("bookmarks");
+                        }
+                        else if (m.Bool("create"))
+                        {
+                            var nu = Resolve(m.Str("newUrl") ?? m.Str("url"));
+                            if (nu != null && !store.IsBookmarked(nu))
+                            {
+                                store.Bookmarks.Add(new Dictionary<string, object> { ["url"] = nu, ["title"] = string.IsNullOrWhiteSpace(m.Str("title")) ? nu : m.Str("title").Trim(), ["t"] = J.Now() });
+                                store.MarkDirty("bookmarks");
+                            }
+                        }
+                        SendBookmarks(); SendState();
+                        break;
+                    }
+                case "devtools": _ = OpenDevTools(active); break;
+                case "devClose": CloseDevTools(); break;
+                case "extensions": OpenInternal("extensions"); break;
+                case "extOpen": { var u = m.Str("url"); if (u != null && u.StartsWith("chrome-extension://")) _ = NewTab(u); break; }
                 case "downloads": cw?.OpenDefaultDownloadDialog(); break;
                 case "print": cw?.ShowPrintUI(); break;
                 case "zoom":
@@ -155,6 +180,17 @@ namespace Mica
                 case "hello":
                     Post(t, new { type = "init", settings = store.Settings, sys = SysObject(), bookmarks = store.Bookmarks, incognito = Incognito });
                     break;
+                case "importSources":
+                    Post(t, new { type = "importSources", list = Importer.Sources().Select(s => new { id = s.Id, browser = s.Browser, profile = s.Profile, bookmarks = s.HasBookmarks, history = s.HasHistory, extensions = s.Extensions }).ToList() });
+                    break;
+                case "extList": _ = SendExtensions(t); break;
+                case "extToggle":
+                    _ = Run(async () => { await Extensions.SetEnabled(Profile, m.Str("id"), m.Bool("on")); await SendExtensions(t); });
+                    break;
+                case "extRemove":
+                    _ = Run(async () => { await Extensions.Remove(Profile, m.Str("id")); await SendExtensions(t); });
+                    break;
+                case "extOpen": { var u = m.Str("url"); if (u != null && u.StartsWith("chrome-extension://")) _ = NewTab(u); break; }
                 case "navigate":
                     {
                         var url = Resolve(m.Str("text"));
@@ -214,14 +250,22 @@ namespace Mica
                     SendBookmarks(); SendState();
                     break;
                 case "import":
+                    _ = Run(async () =>
                     {
-                        int n;
-                        try { n = Importer.Import(store, m.Str("from", "chrome")); } catch { n = -2; }
-                        if (n > 0 && !store.B("bookmarksBar")) SetSetting("bookmarksBar", true);
+                        var src = m.Str("source");
+                        if (src == null) // old style: "from": "chrome" -> first profile of that browser
+                            src = Importer.Sources().FirstOrDefault(s => s.Id.StartsWith(m.Str("from", "chrome") + "|"))?.Id;
+                        if (m.Bool("extensions", true)) QuietTabsUntil = DateTime.UtcNow.AddMinutes(2);
+                        var r = await Importer.Import(store, Profile, src, m.Bool("bookmarks", true), m.Bool("history", true), m.Bool("extensions", true));
+                        if (m.Bool("extensions", true)) QuietTabsUntil = DateTime.UtcNow.AddSeconds(20);
+                        if (r.Bookmarks > 0 && !store.B("bookmarksBar")) SetSetting("bookmarksBar", true);
                         SendBookmarks();
-                        reply(new { type = "imported", from = m.Str("from"), count = n });
-                        break;
-                    }
+                        reply(new { type = "imported", source = src, from = m.Str("from"), bookmarks = r.Bookmarks, history = r.History, extensions = r.Extensions, extensionsFailed = r.ExtensionsFailed, error = r.Error, count = r.Error != null ? -2 : r.Bookmarks + r.History + r.Extensions });
+                    });
+                    break;
+                case "importSources":
+                    reply(new { type = "importSources", list = Importer.Sources().Select(s => new { id = s.Id, browser = s.Browser, profile = s.Profile, bookmarks = s.HasBookmarks, history = s.HasHistory, extensions = s.Extensions }).ToList() });
+                    break;
                 case "pickWallpaper": PickWallpaper(reply); break;
                 case "clearData": _ = ClearData(m.Str("what", "cache"), reply); break;
                 case "checkUpdate": _ = ManualCheckUpdate(reply); break;
@@ -292,15 +336,115 @@ namespace Mica
             return outList;
         }
 
+        /// <summary>The address a tab is bookmarked under (Mica's own pages use mica:// addresses).</summary>
+        string BookmarkKey(BrowserTab t)
+        {
+            if (t == null) return null;
+            if (t.Url.StartsWith("mica://")) return t.Url;
+            return t.View?.CoreWebView2?.Source ?? t.Url;
+        }
+
+        /// <summary>Ctrl+D / the star: adds the page and shows the bookmark popup (or removes it if it was already there).</summary>
         void ToggleBookmarkActive()
         {
-            var c = active?.View?.CoreWebView2;
-            if (c == null || active.Url.StartsWith("mica://")) return;
-            bool added = store.ToggleBookmark(c.Source, c.DocumentTitle);
-            PostUi(new { type = "toast", text = added ? "Bookmarked" : "Bookmark removed", icon = "star" });
+            var url = BookmarkKey(active);
+            if (string.IsNullOrEmpty(url) || url == "mica://newtab") return;
+            bool had = store.IsBookmarked(url);
+            if (!had) store.ToggleBookmark(url, active.Title);
+            PostUi(new { type = "bookmarkPopup", url, title = store.Bookmarks.FirstOrDefault(b => b.Str("url") == url).Str("title", active.Title), added = !had });
             SendBookmarks();
             SendState();
         }
+
+        CoreWebView2Profile Profile => ui?.CoreWebView2?.Profile;
+
+        async Task Run(Func<Task> work)
+        {
+            try { await work(); }
+            catch (Exception ex) { PostUi(new { type = "toast", text = ex.Message, icon = "info" }); }
+        }
+
+        async Task SendExtensions(BrowserTab t)
+        {
+            try { Post(t, new { type = "extensions", list = await Extensions.List(Profile) }); }
+            catch (Exception ex) { Post(t, new { type = "extensions", list = new object[0], error = ex.Message }); }
+        }
+
+        /// <summary>"Add to Mica" on the Chrome Web Store.</summary>
+        void OnWebStoreMessage(BrowserTab t, Dictionary<string, object> m)
+        {
+            if (m.Str("micaCmd") != "installExtension") return;
+            var id = m.Str("id");
+            _ = Run(async () =>
+            {
+                PostUi(new { type = "toast", text = "Installing extension…", icon = "puzzle" });
+                try
+                {
+                    await Extensions.InstallFromStore(Profile, id, env.BrowserVersionString);
+                    PostUi(new { type = "toast", text = "Extension added to Mica", icon = "puzzle", action = "extensions" });
+                    Post(t, new { micaType = "extInstalled", id, ok = true });
+                }
+                catch (Exception ex)
+                {
+                    PostUi(new { type = "toast", text = "Couldn't add it: " + ex.Message, icon = "puzzle" });
+                    Post(t, new { micaType = "extInstalled", id, ok = false });
+                }
+            });
+        }
+
+        // =====================================================================
+        //  DevTools: the real Chrome DevTools, docked in a side panel
+        // =====================================================================
+        WebView2 dev;
+        bool devOpen;
+        Rectangle rectDev;
+        BrowserTab devTab;
+
+        async Task OpenDevTools(BrowserTab t)
+        {
+            var c = t?.View?.CoreWebView2;
+            if (c == null) return;
+            if (DevToolsPort == 0) { c.OpenDevToolsWindow(); return; }
+            string targetId;
+            try { targetId = J.Obj(await c.CallDevToolsProtocolMethodAsync("Target.getTargetInfo", "{}")).Sub("targetInfo").Str("targetId"); }
+            catch { c.OpenDevToolsWindow(); return; }
+            // The engine serves its own copy of DevTools locally: instant and works offline.
+            var url = "http://127.0.0.1:" + DevToolsPort + "/devtools/devtools_app.html?ws=127.0.0.1:" + DevToolsPort + "/devtools/page/" + targetId;
+            if (aiOpen) ToggleAi(false);
+            devTab = t;
+            devOpen = true;
+            if (dev == null)
+            {
+                var v = new WebView2 { Visible = false, DefaultBackgroundColor = Color.FromArgb(32, 33, 36) };
+                dev = v;
+                Controls.Add(v);
+                _ = v.Handle;
+                await v.EnsureCoreWebView2Async(env);
+                if (dev != v) return;
+                HookKeys(v);
+                // No "Welcome" / what's-new tab every time DevTools opens.
+                await v.CoreWebView2.AddScriptToExecuteOnDocumentCreatedAsync(
+                    "try{if(location.hostname==='127.0.0.1'){var L=localStorage;L.setItem('help.show-release-note','false');L.setItem('help.show-welcome','false');" +
+                    "L.setItem('screencast-enabled','false');var c={};try{c=JSON.parse(L.getItem('closeable-tabs')||'{}')}catch(_){}delete c.welcome;L.setItem('closeable-tabs',JSON.stringify(c));" +
+                    "var p=L.getItem('panel-selected-tab');if(!p||p.indexOf('welcome')>=0)L.setItem('panel-selected-tab','\\\"elements\\\"');}}catch(e){}");
+                v.CoreWebView2.Settings.IsStatusBarEnabled = false;
+                v.CoreWebView2.NewWindowRequested += (s, e) => { e.Handled = true; _ = NewTab(e.Uri); };
+            }
+            dev.CoreWebView2.Navigate(url);
+            ApplyLayout();
+            SendState();
+        }
+
+        void CloseDevTools()
+        {
+            devOpen = false;
+            devTab = null;
+            if (dev != null) { Controls.Remove(dev); dev.Dispose(); dev = null; }
+            rectDev = Rectangle.Empty;
+            ApplyLayout();
+            SendState();
+        }
+
 
         // =====================================================================
         //  Overlay: menus and the tour need to draw over the page, so we briefly
@@ -339,6 +483,17 @@ namespace Mica
         // =====================================================================
         //  Keyboard shortcuts (work no matter what has focus)
         // =====================================================================
+        // Shortcuts only reach Mica when something inside the window has focus, so never leave it empty.
+        protected override void OnActivated(EventArgs e)
+        {
+            base.OnActivated(e);
+            if (ActiveControl == null && !overlay)
+            {
+                if (active?.View?.CoreWebView2 != null && active.Url != "mica://newtab") active.View.Focus();
+                else ui?.Focus();
+            }
+        }
+
         protected override bool ProcessCmdKey(ref Message msg, Keys keyData)
             => HandleKey(keyData) || base.ProcessCmdKey(ref msg, keyData);
 
@@ -384,7 +539,7 @@ namespace Mica
                 case Keys.Control | Keys.Shift | Keys.A: if (store.B("aiEnabled")) ToggleAi(!aiOpen); else OpenInternal("settings#ai"); return true;
                 case Keys.Control | Keys.Shift | Keys.S: _ = Screenshot("visible"); return true;
                 case Keys.Control | Keys.Shift | Keys.I:
-                case Keys.F12: active?.View?.CoreWebView2?.OpenDevToolsWindow(); return true;
+                case Keys.F12: if (devOpen) CloseDevTools(); else _ = OpenDevTools(active); return true;
                 case Keys.F11:
                     if (fullscreen) { if (fsTab?.View?.CoreWebView2?.ContainsFullScreenElement == true) return false; SetFullscreen(fsTab, false); }
                     else SetFullscreen(active, true);
@@ -437,6 +592,16 @@ namespace Mica
                 it.CustomItemSelected += (s, a) => BeginInvoke(new Action(() => _ = SplitWithUrl(t, link)));
                 items.Add(it);
             }
+            // "Inspect" opens Mica's docked Chrome DevTools instead of a separate window.
+            var inspect = e.MenuItems.FirstOrDefault(i => i.Name == "inspectElement");
+            if (inspect != null && DevToolsPort > 0)
+            {
+                int at = e.MenuItems.IndexOf(inspect);
+                e.MenuItems.Remove(inspect);
+                var mine = env.CreateContextMenuItem("Inspect", null, CoreWebView2ContextMenuItemKind.Command);
+                mine.CustomItemSelected += (s, a) => BeginInvoke(new Action(() => _ = OpenDevTools(t)));
+                e.MenuItems.Insert(Math.Min(at, e.MenuItems.Count), mine);
+            }
             if (items.Count == 0) return;
             items.Add(env.CreateContextMenuItem("", null, CoreWebView2ContextMenuItemKind.Separator));
             for (int i = items.Count - 1; i >= 0; i--) e.MenuItems.Insert(0, items[i]);
@@ -482,6 +647,7 @@ namespace Mica
 
         void ToggleAi(bool open)
         {
+            if (open && devOpen) CloseDevTools();
             if (open && !store.B("aiEnabled")) { OpenInternal("settings#ai"); return; }
             aiOpen = open;
             if (open && ai == null) _ = CreateAi();
@@ -688,14 +854,22 @@ namespace Mica
 
         async Task AutoCheckUpdate()
         {
-            if (!store.B("updateCheck")) return;
+            if (!store.Settings.Bool("updateCheck", true)) return;
             double last = store.N("lastUpdateCheck");
             if (J.Now() - last < 20 * 3600 * 1000) return;
             store.Set("lastUpdateCheck", (double)J.Now());
             try
             {
                 var info = await Updater.Check();
-                if (info != null && info.Version != store.S("skipVersion")) { pendingUpdate = info; SendState(); }
+                if (info == null || info.Version == store.S("skipVersion")) return;
+                if (store.B("autoUpdate"))
+                {
+                    // Download quietly now; it installs by itself when Mica closes.
+                    var path = await Updater.Download(info, null);
+                    Program.PendingInstaller = path;
+                    PostUi(new { type = "toast", text = "Mica " + info.Version + " is ready. It installs when you close Mica.", icon = "update" });
+                }
+                else { pendingUpdate = info; SendState(); }
             }
             catch { }
         }

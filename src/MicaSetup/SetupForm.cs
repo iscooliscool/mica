@@ -34,7 +34,12 @@ namespace MicaSetup
             BackColor = Program.Uninstall ? Color.FromArgb(28, 26, 44) : Color.FromArgb(96, 128, 246);
             float scale;
             using (var g = CreateGraphics()) scale = g.DpiX / 96f;
-            ClientSize = new Size((int)(880 * scale), (int)(560 * scale));
+            // Fit (and center) on small screens too, e.g. 1024x768 or 1366x768 laptops.
+            var wa = Screen.FromPoint(Cursor.Position).WorkingArea;
+            int w = Math.Min((int)(880 * scale), wa.Width - 24), h = Math.Min((int)(560 * scale), wa.Height - 24);
+            ClientSize = new Size(w, h);
+            StartPosition = FormStartPosition.Manual;
+            Location = new Point(wa.Left + (wa.Width - w) / 2, wa.Top + (wa.Height - h) / 2);
             dir = Program.TargetDir ?? Installer.InstalledDir() ?? Installer.DefaultDir;
             Load += async (s, e) => await InitAsync();
             FormClosing += (s, e) => { if (busy) e.Cancel = true; };
@@ -87,11 +92,11 @@ namespace MicaSetup
             st.IsPinchZoomEnabled = false;
             st.IsStatusBarEnabled = false;
             st.IsSwipeNavigationEnabled = false;
-            c.SetVirtualHostNameToFolderMapping("mica-setup.local", uiDir, CoreWebView2HostResourceAccessKind.Allow);
-            c.NavigationStarting += (s, e) => { if (!e.Uri.StartsWith("https://mica-setup.local/")) e.Cancel = true; };
+            c.SetVirtualHostNameToFolderMapping("mica-setup.example", uiDir, CoreWebView2HostResourceAccessKind.Allow);
+            c.NavigationStarting += (s, e) => { if (!e.Uri.StartsWith("https://mica-setup.example/")) e.Cancel = true; };
             c.NewWindowRequested += (s, e) => e.Handled = true;
             c.WebMessageReceived += (s, e) => OnMessage(Json.Deserialize<Dictionary<string, object>>(e.WebMessageAsJson));
-            c.Navigate("https://mica-setup.local/setup.html");
+            c.Navigate("https://mica-setup.example/setup.html");
         }
 
         void Post(object m)

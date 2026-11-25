@@ -2,6 +2,7 @@
 // node tools/cdp.mjs list
 // node tools/cdp.mjs eval <urlPart> "<js expression>"
 // node tools/cdp.mjs shot <urlPart> out.png
+// node tools/cdp.mjs pdf <urlPart> out.pdf      (prints like Ctrl+P with headers/footers on)
 // node tools/cdp.mjs console <urlPart> [ms]     (prints console messages + exceptions for a while)
 const PORT = process.env.CDP_PORT || 9333;
 const [, , cmd, part, arg] = process.argv;
@@ -11,7 +12,7 @@ if (cmd === 'list') {
   for (const t of targets) console.log(t.type.padEnd(8), t.url);
   process.exit(0);
 }
-const t = targets.find(x => x.type === 'page' && x.url.includes(part));
+const t = targets.find(x => x.type === 'page' && (x.id === part || x.url.includes(part)));
 if (!t) { console.error('no target matching', part); process.exit(2); }
 
 const ws = new WebSocket(t.webSocketDebuggerUrl);
@@ -32,6 +33,11 @@ if (cmd === 'reload') {
 } else if (cmd === 'eval') {
   const r = await send('Runtime.evaluate', { expression: arg, awaitPromise: true, returnByValue: true });
   console.log(JSON.stringify(r.result?.result?.value ?? r.result?.exceptionDetails ?? r, null, 2));
+} else if (cmd === 'pdf') {
+  const r = await send('Page.printToPDF', { printBackground: false, displayHeaderFooter: true, preferCSSPageSize: true });
+  const fs = await import('node:fs');
+  fs.writeFileSync(arg, Buffer.from(r.result.data, 'base64'));
+  console.log('saved', arg);
 } else if (cmd === 'shot') {
   const r = await send('Page.captureScreenshot', { format: 'png' });
   const fs = await import('node:fs');
