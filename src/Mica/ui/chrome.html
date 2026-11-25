@@ -8,6 +8,7 @@
 <link rel="stylesheet" href="chrome.css">
 <script src="shared/icons.js"></script>
 <script src="shared/themes.js"></script>
+<script src="shared/downloads.js"></script>
 </head>
 <body class="top light">
   <div id="art"></div>
@@ -54,6 +55,7 @@
           <div id="toast" class="toast" role="status"></div>
           <button id="update-pill" class="pill accent" title="A new version of Mica is ready"><i data-icon="update"></i><span></span></button>
           <span class="private-chip top-only" title="Private window: nothing is saved"><i data-icon="incognito"></i>Private</span>
+          <button class="tb dl-btn" id="btn-dl" title="Downloads (Ctrl+J)"><svg class="dl-ring" viewBox="0 0 36 36" aria-hidden="true"><circle class="track" cx="18" cy="18" r="15"/><circle class="bar" cx="18" cy="18" r="15"/></svg><svg class="i dl-arrow" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.75" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><g class="dl-shaft"><path d="M12 4v11"/><path d="M7.5 10.5 12 15l4.5-4.5"/></g><path d="M5 20h14"/></svg><span class="dl-dot"></span></button>
           <button id="mem-pill" class="pill" title="Memory Mica is using"><i data-icon="chip"></i><span>-- MB</span></button>
           <button class="tb" id="btn-split" data-cmd="splitMenu" title="Split screen"><i data-icon="split"></i></button>
           <button class="tb" id="btn-ai" data-cmd="ai" title="AI helper (Ctrl+Shift+A)"><i data-icon="sparkle"></i></button>
@@ -65,6 +67,12 @@
 
       <div id="body">
         <main id="stage">
+          <div id="findbar" class="nodrag">
+            <div class="find-box"><i data-icon="search"></i><input id="find-q" spellcheck="false" autocomplete="off" placeholder="Find on page"><span id="find-count"></span></div>
+            <button class="tb sm" id="find-prev" title="Previous (Shift+Enter)"><i data-icon="chevronUp"></i></button>
+            <button class="tb sm" id="find-next" title="Next (Enter)"><i data-icon="chevronDown"></i></button>
+            <button class="tb sm" id="find-close" title="Close (Esc)"><i data-icon="x"></i></button>
+          </div>
           <div id="splitbar">
             <button class="split-label" id="split-a"></button>
             <div class="split-actions">

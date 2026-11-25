@@ -84,6 +84,7 @@ namespace Mica
             Resize += (s, e) => { SendState(); };
             sleepTimer.Tick += (s, e) => SleepTick();
             memTimer.Tick += (s, e) => SendMemory();
+            InitDownloads();
         }
 
         // =====================================================================
@@ -438,6 +439,10 @@ namespace Mica
             c.IsMutedChanged += (s, e) => { t.Muted = c.IsMuted; SendState(); };
             c.ContainsFullScreenElementChanged += (s, e) => SetFullscreen(t, c.ContainsFullScreenElement);
             c.ContextMenuRequested += (s, e) => PageContextMenu(t, e);
+            HookDownloads(c);
+            NoEdge(c);
+            HookFind(t, c);
+            HookPermissions(t, c);
             c.WebMessageReceived += (s, e) =>
             {
                 if (e.Source.StartsWith(PagesUrl)) OnPageMessage(t, J.Obj(e.WebMessageAsJson));
@@ -470,6 +475,7 @@ namespace Mica
             ApplyLayout();
             SendState();
             if (devOpen && devTab != t && t.View != null) _ = OpenDevTools(t);
+            if (findTab != null && findTab != t) { FindStop(); PostUi(new { type = "closeFind" }); }
             if (t.Url == "mica://newtab") { PostUi(new { type = "focusAddress" }); ui?.Focus(); }
             else if (!overlay) t.View?.Focus();
         }
@@ -673,6 +679,7 @@ namespace Mica
             switch (n)
             {
                 case "extensions": return PagesUrl + "extensions.html";
+                case "downloads": return PagesUrl + "downloads.html";
                 case "history": return PagesUrl + "library.html#history";
                 case "bookmarks": return PagesUrl + "library.html#bookmarks";
                 case "settings": return PagesUrl + "settings.html" + hash;

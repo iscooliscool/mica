@@ -138,7 +138,13 @@ namespace Mica
                 case "devClose": CloseDevTools(); break;
                 case "extensions": OpenInternal("extensions"); break;
                 case "extOpen": { var u = m.Str("url"); if (u != null && u.StartsWith("chrome-extension://")) _ = NewTab(u); break; }
-                case "downloads": cw?.OpenDefaultDownloadDialog(); break;
+                case "downloads": OpenInternal("downloads"); break;
+                case "pageMenuPick": FinishMenu(m.Int("id", -1)); break;
+                case "find": _ = FindStart(m.Str("q", "")); break;
+                case "findNext": try { findTab?.View?.CoreWebView2?.Find.FindNext(); } catch { } break;
+                case "findPrev": try { findTab?.View?.CoreWebView2?.Find.FindPrevious(); } catch { } break;
+                case "findClose": FindStop(); active?.View?.Focus(); break;
+                case "permission": AnswerPermission(m.Str("answer", "dismiss")); break;
                 case "print": cw?.ShowPrintUI(); break;
                 case "zoom":
                     if (active?.View != null)
@@ -224,6 +230,7 @@ namespace Mica
         /// <summary>Commands both the UI and the internal pages can send.</summary>
         void HandleShared(string cmd, Dictionary<string, object> m, Action<object> reply)
         {
+            if (HandleDownloadCmd(cmd, m, reply)) return;
             switch (cmd)
             {
                 case "setSetting":
@@ -535,7 +542,10 @@ namespace Mica
                 case Keys.Control | Keys.H: OpenInternal("history"); return true;
                 case Keys.Control | Keys.Shift | Keys.O: OpenInternal("bookmarks"); return true;
                 case Keys.Control | Keys.Oemcomma: OpenInternal("settings"); return true;
-                case Keys.Control | Keys.J: active?.View?.CoreWebView2?.OpenDefaultDownloadDialog(); return true;
+                case Keys.Control | Keys.J: OpenInternal("downloads"); return true;
+                case Keys.Control | Keys.F: OpenFind(); return true;
+                case Keys.F3: if (findTab?.View != null) { try { findTab.View.CoreWebView2.Find.FindNext(); } catch { } } else OpenFind(); return true;
+                case Keys.Shift | Keys.F3: try { findTab?.View?.CoreWebView2?.Find.FindPrevious(); } catch { } return true;
                 case Keys.Control | Keys.Shift | Keys.A: if (store.B("aiEnabled")) ToggleAi(!aiOpen); else OpenInternal("settings#ai"); return true;
                 case Keys.Control | Keys.Shift | Keys.S: _ = Screenshot("visible"); return true;
                 case Keys.Control | Keys.Shift | Keys.I:
@@ -566,45 +576,31 @@ namespace Mica
         // =====================================================================
         void PageContextMenu(BrowserTab t, CoreWebView2ContextMenuRequestedEventArgs e)
         {
+            try { PageContextMenuCore(t, e); } catch (Exception ex) { DebugLog("ctx: " + ex); }
+        }
+
+        void PageContextMenuCore(BrowserTab t, CoreWebView2ContextMenuRequestedEventArgs e)
+        {
             var target = e.ContextMenuTarget;
-            var items = new List<CoreWebView2ContextMenuItem>();
+            // Mica's own items go at the top of the menu Mica draws (the engine's list is never edited)
+            var extras = new List<MenuExtra>();
             if (store.B("aiEnabled"))
             {
                 if (target.HasSelection && !string.IsNullOrWhiteSpace(target.SelectionText))
                 {
                     var sel = target.SelectionText.Trim();
                     var label = sel.Length > 28 ? sel.Substring(0, 28) + "…" : sel;
-                    var it = env.CreateContextMenuItem("Ask Mica AI about “" + label.Replace("&", "&&") + "”", null, CoreWebView2ContextMenuItemKind.Command);
-                    it.CustomItemSelected += (s, a) => BeginInvoke(new Action(() => _ = AskAi("Explain this:\n\n" + sel)));
-                    items.Add(it);
+                    extras.Add(new MenuExtra("Ask Mica AI about “" + label + "”", "sparkle", () => _ = AskAi("Explain this:\n\n" + sel)));
                 }
                 else if (!target.IsEditable)
-                {
-                    var it = env.CreateContextMenuItem("Summarize this page with AI", null, CoreWebView2ContextMenuItemKind.Command);
-                    it.CustomItemSelected += (s, a) => BeginInvoke(new Action(() => { Activate(t); _ = AskAi(null); }));
-                    items.Add(it);
-                }
+                    extras.Add(new MenuExtra("Summarize this page with AI", "sparkle", () => { Activate(t); _ = AskAi(null); }));
             }
             if (target.HasLinkUri)
             {
                 var link = target.LinkUri;
-                var it = env.CreateContextMenuItem("Open link in split screen", null, CoreWebView2ContextMenuItemKind.Command);
-                it.CustomItemSelected += (s, a) => BeginInvoke(new Action(() => _ = SplitWithUrl(t, link)));
-                items.Add(it);
+                extras.Add(new MenuExtra("Open link in split screen", "split", () => _ = SplitWithUrl(t, link)));
             }
-            // "Inspect" opens Mica's docked Chrome DevTools instead of a separate window.
-            var inspect = e.MenuItems.FirstOrDefault(i => i.Name == "inspectElement");
-            if (inspect != null && DevToolsPort > 0)
-            {
-                int at = e.MenuItems.IndexOf(inspect);
-                e.MenuItems.Remove(inspect);
-                var mine = env.CreateContextMenuItem("Inspect", null, CoreWebView2ContextMenuItemKind.Command);
-                mine.CustomItemSelected += (s, a) => BeginInvoke(new Action(() => _ = OpenDevTools(t)));
-                e.MenuItems.Insert(Math.Min(at, e.MenuItems.Count), mine);
-            }
-            if (items.Count == 0) return;
-            items.Add(env.CreateContextMenuItem("", null, CoreWebView2ContextMenuItemKind.Separator));
-            for (int i = items.Count - 1; i >= 0; i--) e.MenuItems.Insert(0, items[i]);
+            ShowMicaMenu(t, e, extras);   // drawn by Mica, not the engine's Edge-style menu
         }
 
         // =====================================================================
@@ -678,6 +674,8 @@ namespace Mica
             var c = v.CoreWebView2;
             c.Settings.IsStatusBarEnabled = false;
             c.NewWindowRequested += (s, e) => { e.Handled = true; _ = NewTab(e.Uri); };
+            HookDownloads(c);
+            NoEdge(c);
             c.NavigationCompleted += (s, e) => aiLoaded?.TrySetResult(true);
             c.Navigate(AiUrl());
             ApplyLayout();

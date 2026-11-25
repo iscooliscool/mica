@@ -38,6 +38,8 @@ Most browsers assume you have plenty of memory. Mica is designed for PCs with **
 | 🏠 **New tab page** | Clock, weather (no account needed), shortcuts, your own wallpaper. |
 | ⭐ **Bookmarks & history** | A bookmarks bar with folders, and one-click import of bookmarks, history and extensions from Chrome, Edge, Brave, Vivaldi or Opera (any profile). |
 | 🧭 **Welcome tour** | Pick your look, layout and speed settings, then a quick guided tour of the real buttons. |
+| ⬇️ **Downloads** | A download button appears in the toolbar when you download something, with live progress, pause/resume and a full history page (`Ctrl+J`). |
+| 🔎 **Mica-made menus** | The right-click menu, find bar (`Ctrl+F`) and site permission prompts are Mica's own, matching your theme. |
 | 🔄 **Updates** | Checks GitHub Releases and asks before updating, or turn on *Update automatically*. |
 
 <p>
@@ -65,6 +67,7 @@ No admin rights needed. Mica installs just for the current user, with its own an
 | Next / previous tab | `Ctrl+Tab` / `Ctrl+Shift+Tab` |
 | Address bar | `Ctrl+L` |
 | Bookmark page | `Ctrl+D` |
+| Find on page | `Ctrl+F` |
 | History / bookmarks / downloads | `Ctrl+H` / `Ctrl+Shift+O` / `Ctrl+J` |
 | AI helper | `Ctrl+Shift+A` |
 | Screenshot | `Ctrl+Shift+S` |

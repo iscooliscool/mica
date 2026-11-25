@@ -37,6 +37,12 @@ if (hasHost) chrome.webview.addEventListener('message', e => {
     case 'startTour': Tour.start(m.first); break;
     case 'zoom': S.zoom = m.value; const z = $('#zoom-val'); if (z) z.textContent = m.value + '%'; break;
     case 'imported': Tour.onImported(m); break;
+    case 'downloads': onDownloads(m); break;
+    case 'pageMenu': onPageMenu(m); break;
+    case 'openFind': openFind(m.q); break;
+    case 'closeFind': closeFind(true); break;
+    case 'findCount': onFindCount(m); break;
+    case 'permission': onPermission(m); break;
     case 'updateProgress': $('#update-pill span').textContent = 'Downloading ' + m.pct + '%'; break;
   }
 });
@@ -638,6 +644,7 @@ function openOverlay(kind, opts) {
   if (!overlayUp) { overlayUp = true; host({ cmd: 'overlay', on: true }); }
 }
 function closeOverlay() {
+  if (pageMenuDone) { const f = pageMenuDone; pageMenuDone = null; f(); }
   overlayKind = null;
   $('#layer').innerHTML = '';
   body.classList.remove('overlay', 'scrim');
@@ -843,6 +850,256 @@ function openMemory(anchor) {
 // =====================================================================
 //  Toasts, update dialog, about
 // =====================================================================
+// =====================================================================
+//  Downloads: toolbar button + bubble (shows up once you download something)
+// =====================================================================
+S.downloads = [];
+let dlAutoTimer = 0;
+const RING = 2 * Math.PI * 15;
+function onDownloads(m) {
+  S.downloads = m.list || [];
+  renderDlButton();
+  const pop = $('#layer .dl-pop');
+  if (overlayKind === 'downloads' && pop) fillDownloads(pop);
+  if (m.started) {
+    dlPulse('drop');
+    if (!overlayKind) openDownloads(true);
+  }
+  if (m.finished) dlPulse('done');
+}
+function renderDlButton() {
+  const b = $('#btn-dl');
+  const list = S.downloads;
+  if (list.length && !b.classList.contains('show')) {
+    b.classList.add('show', 'enter');
+    setTimeout(() => b.classList.remove('enter'), 650);
+  }
+  b.classList.toggle('show', list.length > 0);
+  const act = list.filter(d => d.state === 'progress' || d.state === 'paused');
+  let tot = 0, rec = 0;
+  act.forEach(d => { if (d.total > 0) { tot += d.total; rec += d.received; } });
+  b.classList.toggle('active', act.length > 0);
+  b.classList.toggle('paused', act.length > 0 && act.every(d => d.state === 'paused'));
+  b.classList.toggle('indeterminate', act.length > 0 && !tot);
+  $('.dl-ring .bar', b).style.strokeDashoffset = (RING * (1 - (tot ? rec / tot : 0))).toFixed(2);
+  const failed = !act.length && list[0] && list[0].state === 'failed';
+  b.classList.toggle('failed', !!failed);
+  b.title = act.length ? (act.length === 1 ? act[0].name + ' · ' + MicaDl.status(act[0]) : act.length + ' downloads in progress') : 'Downloads (Ctrl+J)';
+}
+function dlPulse(kind) {
+  const b = $('#btn-dl');
+  b.classList.remove('drop', 'done');
+  void b.offsetWidth;
+  b.classList.add(kind);
+  if (kind === 'done' && overlayKind !== 'downloads') b.classList.add('unseen');
+  setTimeout(() => b.classList.remove(kind), 1100);
+}
+function dlRow(d) {
+  const p = MicaDl.pct(d);
+  const moving = d.state === 'progress' || d.state === 'paused';
+  return '<div class="dl-row s-' + d.state + (d.state === 'done' && d.exists !== false ? ' openable' : '') + '" data-id="' + d.id + '" title="' + esc(d.name + (d.url ? '\n' + d.url : '')) + '">' +
+    MicaDl.badge(d) +
+    '<div class="dl-txt"><div class="dl-name">' + esc(d.name) + '</div><div class="dl-sub">' + esc(MicaDl.status(d)) + '</div>' +
+    (moving ? '<div class="dl-bar' + (d.total > 0 ? '' : ' ind') + '"><span style="width:' + p.toFixed(1) + '%"></span></div>' : '') + '</div>' +
+    '<div class="dl-acts">' + MicaDl.actions(d) + '</div></div>';
+}
+function fillDownloads(el) {
+  const list = S.downloads;
+  const key = list.map(d => d.id + d.state + (d.exists === false)).join('|');
+  if (el.dataset.key === key) {
+    // same downloads, new numbers: update in place so hovering doesn't flicker
+    list.forEach(d => {
+      const r = $('.dl-row[data-id="' + d.id + '"]', el);
+      if (!r) return;
+      $('.dl-sub', r).textContent = MicaDl.status(d);
+      const bar = $('.dl-bar span', r);
+      if (bar) bar.style.width = MicaDl.pct(d).toFixed(1) + '%';
+    });
+    return;
+  }
+  el.dataset.key = key;
+  el.innerHTML = '<div class="dl-head"><b>Recent downloads</b><button class="tb sm" data-a="dlFolder" title="Open your Downloads folder">' + icon('folder') + '</button></div>' +
+    '<div class="dl-list">' + list.map(dlRow).join('') + '</div>' +
+    '<div class="msep"></div><div class="mi" data-a="all">' + icon('download') + '<span>Full download history</span><span class="kbd">Ctrl+J</span></div>';
+}
+function openDownloads(auto) {
+  const b = $('#btn-dl');
+  if (!b.classList.contains('show')) return;
+  openOverlay('downloads');
+  b.classList.remove('unseen');
+  const el = document.createElement('div');
+  el.className = 'dl-pop panel';
+  fillDownloads(el);
+  el.addEventListener('click', e => {
+    const a = e.target.closest('[data-a]');
+    const row = e.target.closest('.dl-row');
+    if (a) {
+      e.stopPropagation();
+      const id = row ? +row.dataset.id : 0;
+      if (a.dataset.a === 'all') { closeOverlay(); host({ cmd: 'downloads' }); return; }
+      host({ cmd: a.dataset.a, id });
+      if (a.dataset.a === 'dlShow' || a.dataset.a === 'dlFolder' || a.dataset.a === 'dlRetry') closeOverlay();
+      return;
+    }
+    if (row && row.classList.contains('openable')) { host({ cmd: 'dlOpen', id: +row.dataset.id }); closeOverlay(); }
+  });
+  placeMenu(el, b);
+  if (auto) {
+    // pops open on its own when a download starts, then tucks itself away (like Chrome)
+    el.classList.add('auto');
+    const arm = () => { clearTimeout(dlAutoTimer); dlAutoTimer = setTimeout(() => { if (overlayKind === 'downloads') closeOverlay(); }, 4500); };
+    el.addEventListener('mouseenter', () => clearTimeout(dlAutoTimer));
+    el.addEventListener('mouseleave', arm);
+    arm();
+  }
+}
+$('#btn-dl').addEventListener('click', () => { clearTimeout(dlAutoTimer); if (overlayKind === 'downloads') closeOverlay(); else openDownloads(false); });
+
+// =====================================================================
+//  Right-click menu on web pages (drawn by Mica instead of the engine)
+// =====================================================================
+const MENU_ICONS = {
+  back: 'back', forward: 'forward', reload: 'reload', saveAs: 'download', print: 'printer',
+  copy: 'copy', copyLinkLocation: 'link', copyImage: 'copy', copyImageLocation: 'link', cut: 'cut', paste: 'paste',
+  pasteAndMatchStyle: 'paste', selectAll: 'selectAll', openLinkInNewWindow: 'external', saveLinkAs: 'download',
+  saveImageAs: 'download', openImageInNewWindow: 'image', inspectElement: 'code', undo: 'undo', redo: 'redo',
+  emoji: 'smile', saveMediaAs: 'download', copyVideoLocation: 'link', pictureInPicture: 'pip', loop: 'reload',
+  savePage: 'download', viewPageSource: 'code', other: '',
+};
+const MENU_LABELS = { openLinkInNewWindow: 'Open link in new tab', openImageInNewWindow: 'Open image in new tab' };
+let pageMenuDone = null;
+function cleanLabel(s) { return String(s || '').replace(/&&/g, '\u0000').replace(/&/g, '').replace(/\u0000/g, '&'); }
+function menuIcon(it) {
+  const n = it.icon || MENU_ICONS[it.name];
+  return n && MicaIcons[n] ? icon(n) : '<span class="i"></span>';
+}
+function pageMenuEl(items) {
+  const el = document.createElement('div');
+  el.className = 'menu panel page-menu';
+  el.innerHTML = items.map((it, i) => {
+    if (it.kind === 'separator') return sep;
+    const label = MENU_LABELS[it.name] || cleanLabel(it.label);
+    const sub = it.kind === 'submenu';
+    const chk = it.kind === 'checkbox' || it.kind === 'radio';
+    return '<div class="mi' + (it.enabled ? '' : ' disabled') + (sub ? ' has-sub' : '') + '" data-i="' + i + '">' +
+      (chk ? (it.check ? icon('check') : '<span class="i"></span>') : menuIcon(it)) +
+      '<span>' + esc(label) + '</span>' +
+      (sub ? '<span class="kbd">' + icon('arrowRight') + '</span>' : it.key ? '<span class="kbd">' + esc(it.key) + '</span>' : '') + '</div>';
+  }).join('');
+  return el;
+}
+function onPageMenu(m) {
+  if (overlayKind) { host({ cmd: 'pageMenuPick', id: -1 }); return; }
+  let done = false;
+  const finish = id => { if (done) return; done = true; pageMenuDone = null; host({ cmd: 'pageMenuPick', id }); };
+  pageMenuDone = () => finish(-1);
+  openOverlay('pagemenu', { onOutside: () => closeOverlay() });
+  const dpr = devicePixelRatio || 1;
+  const x = m.x / dpr, y = m.y / dpr;
+  const open = (items, px, py, level) => {
+    $$('.page-menu', $('#layer')).forEach(e => { if (+e.dataset.level >= level) e.remove(); });
+    const el = pageMenuEl(items);
+    el.dataset.level = level;
+    $('#layer').appendChild(el);
+    el.style.transformOrigin = 'top left';
+    const w = el.offsetWidth, h = el.offsetHeight;
+    el.style.left = Math.max(6, Math.min(px, innerWidth - w - 6)) + 'px';
+    el.style.top = Math.max(6, Math.min(py, innerHeight - h - 6)) + 'px';
+    let subTimer = 0;
+    el.addEventListener('mouseover', e => {
+      const row = e.target.closest('.mi');
+      if (!row) return;
+      const it = items[+row.dataset.i];
+      clearTimeout(subTimer);
+      subTimer = setTimeout(() => {
+        if (it && it.kind === 'submenu' && it.enabled) { const r = row.getBoundingClientRect(); open(it.children || [], r.right - 4, r.top - 6, level + 1); }
+        else $$('.page-menu', $('#layer')).forEach(e2 => { if (+e2.dataset.level > level) e2.remove(); });
+      }, it && it.kind === 'submenu' ? 80 : 180);
+    });
+    el.addEventListener('click', e => {
+      const row = e.target.closest('.mi');
+      if (!row || row.classList.contains('disabled')) return;
+      const it = items[+row.dataset.i];
+      if (it.kind === 'submenu') { const r = row.getBoundingClientRect(); open(it.children || [], r.right - 4, r.top - 6, level + 1); return; }
+      finish(it.id);
+      closeOverlay();
+    });
+  };
+  open(m.items || [], x, y, 0);
+}
+
+// =====================================================================
+//  Find in page (Ctrl+F)
+// =====================================================================
+let findTimer = 0;
+function openFind(q) {
+  const bar = $('#findbar'), input = $('#find-q');
+  const was = body.classList.contains('finding');
+  body.classList.add('finding');
+  if (!was) { bar.classList.remove('in'); void bar.offsetWidth; bar.classList.add('in'); }
+  if (q) input.value = q;
+  input.focus(); input.select();
+  if (input.value) host({ cmd: 'find', q: input.value });
+  queueLayout();
+}
+function closeFind(silent) {
+  if (!body.classList.contains('finding')) return;
+  body.classList.remove('finding');
+  $('#find-count').textContent = '';
+  if (!silent) host({ cmd: 'findClose' });
+  queueLayout();
+}
+$('#find-q').addEventListener('input', () => {
+  clearTimeout(findTimer);
+  const q = $('#find-q').value;
+  $('#findbar').classList.toggle('nomatch', false);
+  findTimer = setTimeout(() => host({ cmd: 'find', q }), 120);
+});
+$('#find-q').addEventListener('keydown', e => {
+  if (e.key === 'Enter') { e.preventDefault(); host({ cmd: e.shiftKey ? 'findPrev' : 'findNext' }); }
+  else if (e.key === 'Escape') { e.preventDefault(); closeFind(); }
+});
+$('#find-prev').addEventListener('click', () => host({ cmd: 'findPrev' }));
+$('#find-next').addEventListener('click', () => host({ cmd: 'findNext' }));
+$('#find-close').addEventListener('click', () => closeFind());
+function onFindCount(m) {
+  const q = $('#find-q').value;
+  $('#find-count').textContent = q ? (m.count ? m.index + '/' + m.count : '0/0') : '';
+  $('#findbar').classList.toggle('nomatch', !!q && !m.count);
+}
+
+// =====================================================================
+//  Permission prompts ("site wants to use your camera")
+// =====================================================================
+const PERMS = {
+  Camera: ['camera', 'Use your camera'], Microphone: ['mic', 'Use your microphone'], Geolocation: ['pin', 'Know your location'],
+  Notifications: ['bell', 'Show notifications'], ClipboardRead: ['paste', 'See text and images copied to the clipboard'],
+  OtherSensors: ['chip', 'Use motion sensors'], LocalFonts: ['doc', 'Use the fonts on your computer'],
+  MultipleAutomaticDownloads: ['download', 'Download multiple files'], FileReadWrite: ['folder', 'Edit files on your computer'],
+  WindowManagement: ['expand', 'Manage windows on all your displays'], MidiSystemExclusiveMessages: ['volume', 'Control MIDI devices'],
+};
+function onPermission(m) {
+  const [ic, text] = PERMS[m.kind] || ['shield', 'Use ' + m.kind];
+  let answered = false;
+  const answer = a => { if (answered) return; answered = true; host({ cmd: 'permission', answer: a }); };
+  if (overlayKind) closeOverlay();
+  openOverlay('permission', { onOutside: () => { closeOverlay(); } });
+  pageMenuDone = () => answer('dismiss');
+  const el = document.createElement('div');
+  el.className = 'perm-pop panel';
+  el.innerHTML = '<div class="perm-head"><b>' + esc(m.host) + '</b> wants to</div>' +
+    '<div class="perm-row"><span class="icon-bubble">' + icon(MicaIcons[ic] ? ic : 'shield') + '</span><span>' + esc(text) + '</span></div>' +
+    '<div class="perm-foot"><button class="btn" data-a="block">Block</button><button class="btn primary" data-a="allow">Allow</button></div>';
+  el.addEventListener('click', e => {
+    const b = e.target.closest('[data-a]');
+    if (!b) return;
+    answer(b.dataset.a);
+    pageMenuDone = null;
+    closeOverlay();
+  });
+  placeMenu(el, $('#site-icon'), 'left');
+}
+
 let toastTimer;
 function toast(text, ic, action) {
   const t = $('#toast');
