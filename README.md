@@ -98,6 +98,15 @@ Tip: set `MICA_DATA` to a folder to use a separate profile (handy for testing, o
 
 Mica has no account, no telemetry and no ads. It talks to: the sites you visit; your chosen search engine; Open-Meteo for weather (only if you set a city); DuckDuckGo's icon service for shortcut icons; GitHub to check for updates (can be turned off); and Duck.ai or ChatGPT only when you open the AI panel. Tracking prevention is on by default.
 
+## Code signing policy
+
+Free code signing provided by [SignPath.io](https://about.signpath.io), certificate by [SignPath Foundation](https://signpath.org).
+
+- **Committers and reviewers:** [iscooliscool](https://github.com/iscooliscool)
+- **Approvers:** [iscooliscool](https://github.com/iscooliscool)
+
+Privacy: Mica's network use is described in [Privacy](#privacy) above. Mica has no telemetry or ads; it contacts other systems (your search engine, weather, update checks, the AI panel) only as described there, and update checks can be turned off.
+
 ## License
 
 [MIT](LICENSE)
