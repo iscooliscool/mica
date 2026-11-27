@@ -1,0 +1,23 @@
+[
+  {
+    "version": "1.3.0",
+    "title": "Passwords, printing and folders",
+    "intro": "Here's what changed in this update.",
+    "items": [
+      { "icon": "key", "title": "Built-in password manager", "text": "Mica offers to save passwords when you sign in and fills them in when you click a login box. They're encrypted with your Windows account. Find them under ⋮ → Passwords, or import them from Chrome." },
+      { "icon": "printer", "title": "Mica's own print window", "text": "Ctrl+P now opens Mica's print window with a live preview. Choose a printer or Save as PDF, pick pages, layout, paper size and more." },
+      { "icon": "folder", "title": "Bookmark folders", "text": "Make folders right on the bookmarks bar, put folders inside folders, and pick a folder when you add or edit a bookmark. Right-click a folder to rename or delete it." },
+      { "icon": "pip", "title": "Videos keep playing behind menus", "text": "Opening a menu or the memory meter no longer freezes the video you're watching." },
+      { "icon": "sparkle", "title": "What's new, right here", "text": "After each update, Mica shows you what changed. You can open this again any time from ⋮ → What's new." }
+    ]
+  },
+  {
+    "version": "1.2.1",
+    "title": "Extension fixes",
+    "items": [
+      { "icon": "puzzle", "title": "Extension popups stay open", "text": "They no longer flash and close, and they size themselves to fit." },
+      { "icon": "plus", "title": "New tabs open at the end", "text": "The + button and Ctrl+T put the new tab at the end of the strip." },
+      { "icon": "split", "title": "Side panels stay visible behind menus", "text": "ChatGPT and other extension panels no longer go blank when a menu opens." }
+    ]
+  }
+]

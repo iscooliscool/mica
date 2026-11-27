@@ -25,7 +25,7 @@ namespace Mica
             c.DownloadStarting += (s, e) =>
             {
                 e.Handled = true;   // hides the Edge download dialog; the download itself carries on
-                Downloads.Track(e.DownloadOperation, e.ResultFilePath, this, Incognito);
+                Downloads.Track(e.DownloadOperation, e.ResultFilePath, this, Incognito, c);
             };
         }
 
@@ -65,6 +65,7 @@ namespace Mica
                 case "dlList": reply(new { type = "downloads", list = AllDownloadsJson() }); return true;
                 case "dlPause": Downloads.Pause(id); return true;
                 case "dlResume": Downloads.Resume(id); return true;
+                case "dlReview": Downloads.Review(id); return true;
                 case "dlCancel": Downloads.Cancel(id); return true;
                 case "dlOpen": Downloads.Open(id); return true;
                 case "dlShow": Downloads.Show(id); return true;

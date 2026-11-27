@@ -42,7 +42,10 @@ function Build-Flavor([string]$platform, [string]$suffix) {
     $stage = "src\MicaSetup\obj\stage"
     if (Test-Path $stage) { Remove-Item $stage -Recurse -Force }
     New-Item -ItemType Directory -Force $stage | Out-Null
-    Copy-Item "$bin\Mica.exe", "$bin\Mica.exe.config", "$bin\Microsoft.Web.WebView2.Core.dll", "$bin\Microsoft.Web.WebView2.WinForms.dll" $stage
+    Copy-Item "$bin\Mica.exe", "$bin\Mica.exe.config" $stage
+    # every DLL the app needs: WebView2, plus the small .NET facades that Mica.exe.config redirects to
+    # (they come with the Windows API package; leaving them out breaks zip handling and the Windows APIs)
+    Get-ChildItem "$bin\*.dll" | Where-Object { $_.Name -ne "Microsoft.Web.WebView2.Wpf.dll" } | Copy-Item -Destination $stage
     Copy-Item "$bin\runtimes", "$bin\ui" $stage -Recurse
     $zipDir = "src\MicaSetup\payload"
     New-Item -ItemType Directory -Force $zipDir | Out-Null

@@ -22,6 +22,7 @@ namespace Mica
 
         public Dictionary<string, object> Settings;
         public List<Dictionary<string, object>> Bookmarks;
+        public List<Dictionary<string, object>> Folders;   // folders you made yourself: { path: "A / B", bar }
         public List<Dictionary<string, object>> History;
 
         readonly HashSet<string> dirty = new HashSet<string>();
@@ -35,6 +36,7 @@ namespace Mica
             var saved = Read("settings.json");
             if (saved != null) foreach (var kv in saved) Settings[kv.Key] = kv.Value;
             Bookmarks = ReadList("bookmarks.json");
+            Folders = ReadList("folders.json");
             History = ReadList("history.json");
             saveTimer.Tick += (s, e) => Flush();
         }
@@ -55,6 +57,7 @@ namespace Mica
             ["showMemory"] = true,
             ["pipButton"] = true,
             ["bookmarksBar"] = false,
+            ["savePasswords"] = true,
             ["animations"] = true,
             ["shortcuts"] = new object[]
             {
@@ -103,7 +106,7 @@ namespace Mica
                     switch (d)
                     {
                         case "settings": Write("settings.json", Settings); break;
-                        case "bookmarks": Write("bookmarks.json", Bookmarks); break;
+                        case "bookmarks": Write("bookmarks.json", Bookmarks); Write("folders.json", Folders); break;
                         case "history": Write("history.json", History); break;
                     }
                 }

@@ -38,6 +38,7 @@
   function status(d) {
     switch (d.state) {
       case 'progress': {
+        if (d.held) return 'Waiting on a safety check';
         const of = bytes(d.received) + (d.total > 0 ? ' of ' + bytes(d.total) : '');
         const tl = d.speed > 0 && d.total > 0 ? left((d.total - d.received) / d.speed) : d.speed > 0 ? bytes(d.speed) + '/s' : 'Starting…';
         return of + (tl ? ' · ' + tl : '');
@@ -57,7 +58,8 @@
   function actions(d) {
     const b = (a, ic, t) => '<button class="dl-act" data-a="' + a + '" title="' + t + '">' + icon(ic) + '</button>';
     switch (d.state) {
-      case 'progress': return b('dlPause', 'pause', 'Pause') + b('dlCancel', 'x', 'Cancel');
+      case 'progress': return d.held ? b('dlReview', 'shield', 'Review this download') + b('dlCancel', 'x', 'Cancel')
+        : b('dlPause', 'pause', 'Pause') + b('dlCancel', 'x', 'Cancel');
       case 'paused': return b('dlResume', 'play', 'Resume') + b('dlCancel', 'x', 'Cancel');
       case 'done': return d.exists === false ? b('dlRemove', 'x', 'Remove from list') : b('dlShow', 'folder', 'Show in folder');
       default: return b('dlRetry', 'reload', 'Try again') + b('dlRemove', 'x', 'Remove from list');

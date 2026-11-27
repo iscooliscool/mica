@@ -20,6 +20,8 @@ namespace Mica
         public bool Private;
         public object Window;                                      // the MainForm it started in
         public CoreWebView2DownloadOperation Op;
+        public CoreWebView2 Source;                                // the page that started it
+        public bool Held;                                          // WebView2 is holding it for a safety check (needs the person's OK)
         long lastBytes; DateTime lastTick = DateTime.UtcNow;
 
         internal void Sample()
@@ -34,7 +36,7 @@ namespace Mica
 
         public object ToJson() => new
         {
-            id = Id, name = Name, path = Path, url = Url, state = State, reason = Reason,
+            id = Id, name = Name, path = Path, url = Url, state = State, reason = Reason, held = Held && State == "progress",
             total = Total, received = Received, t = Started, done = Finished,
             speed = (long)Speed, canResume = Op != null && State == "paused" && SafeCanResume(),
             exists = State == "done" && !string.IsNullOrEmpty(Path) && File.Exists(Path),
@@ -92,12 +94,12 @@ namespace Mica
         public static DownloadItem Get(int id) => All.FirstOrDefault(d => d.Id == id);
 
         /// <summary>Starts tracking a download. The caller has already set Handled so the Edge dialog stays hidden.</summary>
-        public static DownloadItem Track(CoreWebView2DownloadOperation op, string resultPath, object window, bool isPrivate)
+        public static DownloadItem Track(CoreWebView2DownloadOperation op, string resultPath, object window, bool isPrivate, CoreWebView2 source = null)
         {
             Load();
             var d = new DownloadItem
             {
-                Id = nextId++, Op = op, Window = window, Private = isPrivate,
+                Id = nextId++, Op = op, Window = window, Private = isPrivate, Source = source,
                 Path = resultPath, Name = System.IO.Path.GetFileName(resultPath),
                 Url = op.Uri, Total = (long)(op.TotalBytesToReceive ?? 0), Started = J.Now(),
             };
@@ -105,6 +107,7 @@ namespace Mica
             op.BytesReceivedChanged += (s, e) =>
             {
                 d.Received = op.BytesReceived;
+                d.Held = false;
                 if (d.Total <= 0) d.Total = (long)(op.TotalBytesToReceive ?? 0);
                 d.Sample();
                 Changed?.Invoke(d);
@@ -133,7 +136,50 @@ namespace Mica
                 Changed?.Invoke(d);
             };
             Changed?.Invoke(d);
+            WatchForHold(d);
             return d;
+        }
+
+        // WebView2 holds some downloads for a safety check (e.g. a program over plain http, or one SmartScreen
+        // doesn't know) and reports nothing until someone approves it in its own prompt. Mica hides that
+        // prompt, so after a few silent seconds the download is marked "needs your OK" with a Review button.
+        // Also reads the download's real state once a second while it runs: WebView2 doesn't always raise
+        // its progress/finished events (seen with fast downloads over plain http), which left Mica showing
+        // "Starting… 0 B" for a file that had already finished.
+        static async void WatchForHold(DownloadItem d)
+        {
+            var lastChange = DateTime.UtcNow;
+            while (d.Op != null && (d.State == "progress" || d.State == "paused"))
+            {
+                await System.Threading.Tasks.Task.Delay(1000);
+                var op = d.Op;
+                if (op == null || d.State == "paused") continue;
+                try
+                {
+                    var st = op.State;
+                    var got = op.BytesReceived;
+                    if (st == CoreWebView2DownloadState.Completed)
+                    {
+                        d.Path = op.ResultFilePath ?? d.Path; d.Name = System.IO.Path.GetFileName(d.Path);
+                        d.State = "done"; d.Received = got; if (d.Total <= 0) d.Total = got; d.Finished = J.Now(); d.Speed = 0; d.Held = false;
+                        d.Op = null; Save(); Changed?.Invoke(d);
+                        return;
+                    }
+                    if (st == CoreWebView2DownloadState.Interrupted) continue;   // StateChanged reports why
+                    if (got != d.Received) { d.Received = got; d.Held = false; d.Sample(); lastChange = DateTime.UtcNow; Changed?.Invoke(d); }
+                    // Nothing has arrived for a while, or everything has but it isn't finished: Windows Defender
+                    // is scanning it, or WebView2 wants the person to OK it (e.g. a program over plain http).
+                    else if (!d.Held && (got == 0 || (d.Total > 0 && got >= d.Total)) && (DateTime.UtcNow - lastChange).TotalSeconds >= 4)
+                    { d.Held = true; d.Speed = 0; Changed?.Invoke(d); }
+                }
+                catch { return; }   // the operation is gone
+            }
+        }
+
+        public static void Review(int id)
+        {
+            var d = Get(id);
+            try { d?.Source?.OpenDefaultDownloadDialog(); } catch { }
         }
 
         static readonly HashSet<CoreWebView2DownloadOperation> pausedOps = new HashSet<CoreWebView2DownloadOperation>();

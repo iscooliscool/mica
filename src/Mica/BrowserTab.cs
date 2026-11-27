@@ -18,6 +18,7 @@ namespace Mica
         public WebView2 View;
         public string PipScriptId, BootScriptId;
         public bool Waking;
+        public string PendingPwToken;   // a "save password?" prompt waiting until this tab is shown
         public bool Asleep => View == null;
     }
 }

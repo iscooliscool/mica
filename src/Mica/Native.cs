@@ -29,6 +29,9 @@ namespace Mica
         [DllImport("user32.dll")] public static extern bool UnhookWindowsHookEx(IntPtr hhk);
         [DllImport("user32.dll")] public static extern IntPtr CallNextHookEx(IntPtr hhk, int nCode, IntPtr wParam, IntPtr lParam);
         [DllImport("kernel32.dll")] public static extern IntPtr GetModuleHandle(string name);
+        [StructLayout(LayoutKind.Sequential)] public struct POINT { public int x, y; }
+        [DllImport("user32.dll")] public static extern IntPtr WindowFromPoint(POINT p);
+        [DllImport("user32.dll")] public static extern IntPtr GetAncestor(IntPtr h, uint flags);
 
         [StructLayout(LayoutKind.Sequential)]
         public struct RECT { public int left, top, right, bottom; }

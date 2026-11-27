@@ -26,8 +26,16 @@ if (hasHost) chrome.webview.addEventListener('message', e => {
     case 'state': onState(m); break;
     case 'settings': onSettings(m.settings); break;
     case 'sys': S.sys = m.sys; break;
-    case 'bookmarks': S.bookmarks = m.list || []; renderBookmarks(); break;
+    case 'bookmarks': S.bookmarks = m.list || []; S.folders = m.folders || []; bmKey = ''; renderBookmarks(); break;
     case 'backdrop': onBackdrop(m.shots || []); break;
+    case 'printOpen': openPrintDialog(m); break;
+    case 'printPages': onPrintPages(m); break;
+    case 'printPage': onPrintPage(m); break;
+    case 'pwSave': openPwSave(m); break;
+    case 'pwSuggest': openPwSuggest(m); break;
+    case 'pwSuggestClose': if (overlayKind === 'pwsuggest') closeOverlay(); break;
+    case 'whatsNew': setTimeout(() => openWhatsNew(m.version), 600); break;
+    case 'overlayOutside': if (overlayUp && overlayOutside) overlayOutside({ fromPage: true }); break;
     case 'focusAddress': focusAddress(); break;
     case 'suggest': onSuggest(m); break;
     case 'toast': toast(m.text, m.icon, m.action); break;
@@ -324,11 +332,12 @@ function openBookmarkPopup(m) {
   el.innerHTML = '<h3>' + icon('star') + (m.added ? 'Bookmark added' : 'Edit bookmark') + '</h3>' +
     '<label>Name</label><input class="field" id="bm-name" spellcheck="false">' +
     '<label>Address</label><input class="field" id="bm-url" spellcheck="false">' +
+    folderSelect(((S.bookmarks || []).find(b => b.url === m.url) || {}).folder || '') +
     '<div class="row-btns"><button class="btn danger-ghost" data-a="remove">' + icon('trash') + 'Remove</button><span class="spacer"></span><button class="btn primary" data-a="done">Done</button></div>';
   $('#bm-name', el).value = m.title || '';
   $('#bm-url', el).value = m.url || '';
   const done = () => {
-    host({ cmd: 'editBookmark', url: m.url, title: $('#bm-name', el).value, newUrl: $('#bm-url', el).value });
+    host({ cmd: 'editBookmark', url: m.url, title: $('#bm-name', el).value, newUrl: $('#bm-url', el).value, folder: $('#bm-folder', el).value });
     closeOverlay();
   };
   el.addEventListener('click', e => {
@@ -349,14 +358,14 @@ function openBookmarkDialog(b) {
   el.innerHTML = '<h2>' + (b.create ? 'Add bookmark' : 'Edit bookmark') + '</h2>' +
     '<p class="lead" style="margin-bottom:8px">' + (b.create ? 'It shows up on your bookmarks bar and new tab page.' : 'Change its name or address.') + '</p>' +
     '<div class="bubble" style="position:static;width:auto;padding:0;animation:none"><label>Name</label><input class="field" id="bd-name" spellcheck="false">' +
-    '<label>Address</label><input class="field" id="bd-url" spellcheck="false" placeholder="example.com"></div>' +
+    '<label>Address</label><input class="field" id="bd-url" spellcheck="false" placeholder="example.com">' + folderSelect(b.folder || '') + '</div>' +
     '<div class="foot"><span class="spacer"></span><button class="btn ghost" data-a="cancel">Cancel</button><button class="btn primary" data-a="save">Save</button></div>';
   $('#bd-name', el).value = b.title || '';
   $('#bd-url', el).value = b.url || '';
   const save = () => {
     const url = $('#bd-url', el).value.trim();
     if (!url) { $('#bd-url', el).focus(); return; }
-    host({ cmd: 'editBookmark', url: b.create ? url : b.url, newUrl: url, title: $('#bd-name', el).value, create: !!b.create });
+    host({ cmd: 'editBookmark', url: b.create ? url : b.url, newUrl: url, title: $('#bd-name', el).value, create: !!b.create, folder: $('#bm-folder', el).value });
     closeOverlay();
   };
   el.addEventListener('click', e => {
@@ -429,6 +438,14 @@ function bmIcon(url) {
   } catch { return icon('globe'); }
 }
 function barBookmarks() { return (S.bookmarks || []).filter(b => b.bar !== false); }
+// Every bar folder path, including empty folders you made and the parents of nested ones.
+function barFolders() {
+  const out = [];
+  const add = p => { const parts = p.split(' / '); for (let i = 1; i <= parts.length; i++) { const q = parts.slice(0, i).join(' / '); if (!out.includes(q)) out.push(q); } };
+  for (const b of barBookmarks()) if (b.folder) add(b.folder);
+  for (const f of (S.folders || [])) if (f.bar !== false && f.path) add(f.path);
+  return out;
+}
 // What sits directly on the bar, in Chrome's order: loose bookmarks plus one button per top folder.
 function barEntries() {
   const out = [], seen = new Set();
@@ -438,7 +455,77 @@ function barEntries() {
     const top = f.split(' / ')[0];
     if (!seen.has(top)) { seen.add(top); out.push({ folder: top }); }
   }
+  for (const f of (S.folders || [])) {   // folders you made that are still empty
+    if (f.bar === false || !f.path) continue;
+    const top = f.path.split(' / ')[0];
+    if (!seen.has(top)) { seen.add(top); out.push({ folder: top }); }
+  }
   return out.slice(0, 40);
+}
+// Small dialog asking for a name (new folder, rename).
+function nameDialog(title, lead, value, okLabel, onSave) {
+  openOverlay('dialog', { scrim: true });
+  const el = document.createElement('div');
+  el.className = 'card small panel';
+  el.innerHTML = '<h2>' + esc(title) + '</h2>' + (lead ? '<p class="lead" style="margin-bottom:8px">' + esc(lead) + '</p>' : '') +
+    '<div class="bubble" style="position:static;width:auto;padding:0;animation:none"><label>Name</label><input class="field" id="nd-name" spellcheck="false"></div>' +
+    '<div class="foot"><span class="spacer"></span><button class="btn ghost" data-a="cancel">Cancel</button><button class="btn primary" data-a="save">' + esc(okLabel) + '</button></div>';
+  const input = $('#nd-name', el);
+  input.value = value || '';
+  const save = () => { const v = input.value.replace(/\//g, '-').trim(); if (!v) { input.focus(); return; } closeOverlay(); onSave(v); };
+  el.addEventListener('click', e => { const a = e.target.closest('[data-a]'); if (!a) return; if (a.dataset.a === 'save') save(); else closeOverlay(); });
+  el.addEventListener('keydown', e => { if (e.key === 'Enter') save(); });
+  $('#layer').appendChild(el);
+  setTimeout(() => { input.focus(); input.select(); }, 30);
+}
+function confirmDialog(title, text, okLabel, onOk) {
+  openOverlay('dialog', { scrim: true });
+  const el = document.createElement('div');
+  el.className = 'card small panel';
+  el.innerHTML = '<h2>' + esc(title) + '</h2><p class="lead">' + esc(text) + '</p>' +
+    '<div class="foot"><span class="spacer"></span><button class="btn ghost" data-a="cancel">Cancel</button><button class="btn danger" data-a="ok">' + esc(okLabel) + '</button></div>';
+  el.addEventListener('click', e => { const a = e.target.closest('[data-a]'); if (!a) return; closeOverlay(); if (a.dataset.a === 'ok') onOk(); });
+  $('#layer').appendChild(el);
+  setTimeout(() => $('[data-a=cancel]', el).focus(), 30);
+}
+function newFolder(parent) {
+  nameDialog(parent ? 'New folder in ' + parent.split(' / ').pop() : 'New folder', parent ? '' : 'It goes on your bookmarks bar.', '', 'Create',
+    name => host({ cmd: 'addFolder', parent: parent || '', name }));
+}
+function renameFolder(path) {
+  nameDialog('Rename folder', '', path.split(' / ').pop(), 'Save', name => host({ cmd: 'renameFolder', path, name }));
+}
+function deleteFolder(path) {
+  const n = folderItems(path).length;
+  const name = path.split(' / ').pop();
+  if (!n && !barFolders().some(f => f.startsWith(path + ' / '))) { host({ cmd: 'deleteFolder', path }); toast('Folder deleted', 'trash'); return; }
+  confirmDialog('Delete "' + name + '"?', n ? 'This also deletes the ' + n + ' bookmark' + (n === 1 ? '' : 's') + ' inside it.' : 'This also deletes the folders inside it.', 'Delete',
+    () => { host({ cmd: 'deleteFolder', path }); toast('Folder deleted', 'trash'); });
+}
+function folderCtxItems(path) {
+  const n = folderItems(path).length;
+  return [
+    ...(n ? [mi('all', 'plus', 'Open all (' + n + ') in new tabs'), sep] : []),
+    mi('addhere', 'bookmarkPlus', 'Add bookmark here…'),
+    mi('newfolder', 'folder', 'New folder inside…'),
+    sep,
+    mi('rename', 'pencil', 'Rename…'),
+    mi('delfolder', 'trash', 'Delete folder'),
+  ];
+}
+function folderCtxAct(path, act) {
+  if (act === 'all') folderItems(path).forEach((b, i) => host({ cmd: 'openUrl', url: b.url, background: i > 0 }));
+  else if (act === 'addhere') addBookmarkFromCurrent(path);
+  else if (act === 'newfolder') newFolder(path);
+  else if (act === 'rename') renameFolder(path);
+  else if (act === 'delfolder') deleteFolder(path);
+}
+// <select> of every place a bookmark can go.
+function folderSelect(current) {
+  const opts = [['', 'Bookmarks bar'], ...barFolders().map(f => [f, 'Bookmarks bar / ' + f])];
+  if (current && !opts.some(o => o[0] === current)) opts.push([current, current]);
+  return '<label>Folder</label><select class="field" id="bm-folder">' +
+    opts.map(o => '<option value="' + esc(o[0]) + '"' + (o[0] === (current || '') ? ' selected' : '') + '>' + esc(o[1]) + '</option>').join('') + '</select>';
 }
 function bmOpen(b, e) {
   if (e && (e.ctrlKey || e.button === 1)) host({ cmd: 'openUrl', url: b.url, background: true });
@@ -452,8 +539,7 @@ function openFolderMenu(path, x, y) {
   const all = barBookmarks();
   const direct = all.filter(b => (b.folder || '') === path);
   const subs = [];
-  for (const b of all) {
-    const f = b.folder || '';
+  for (const f of barFolders()) {
     if (!f.startsWith(path + ' / ')) continue;
     const name = f.slice(path.length + 3).split(' / ')[0];
     if (!subs.includes(name)) subs.push(name);
@@ -465,12 +551,24 @@ function openFolderMenu(path, x, y) {
   direct.forEach((b, i) => rows.push('<div class="mi bmi" data-act="b' + i + '" title="' + esc(b.url) + '">' + bmIcon(b.url) + '<span>' + esc(b.title || b.url) + '</span></div>'));
   if (!subs.length && !direct.length) rows.push('<div class="mi disabled" data-act="none">' + icon('info') + '<span>Empty folder</span></div>');
   const count = folderItems(path).length;
-  if (count > 1) rows.push(sep, mi('all', 'plus', 'Open all (' + count + ') in new tabs'));
+  rows.push(sep);
+  if (count > 1) rows.push(mi('all', 'plus', 'Open all (' + count + ') in new tabs'));
+  rows.push(mi('addhere', 'bookmarkPlus', 'Add bookmark here…'), mi('newfolder', 'folder', 'New folder…'));
   ctxMenu(x, y, rows, act => {
     if (act === 'up') openFolderMenu(parts.slice(0, -1).join(' / '), x, y);
     else if (act[0] === 'f') openFolderMenu(path + ' / ' + subs[+act.slice(1)], x, y);
     else if (act[0] === 'b') bmOpen(direct[+act.slice(1)]);
-    else if (act === 'all') folderItems(path).forEach((b, i) => host({ cmd: 'openUrl', url: b.url, background: i > 0 }));
+    else folderCtxAct(path, act);
+  });
+  // right-click a sub-folder row to rename or delete it
+  const menuNode = $('#layer .menu:last-child');
+  if (menuNode) menuNode.addEventListener('contextmenu', e => {
+    const row = e.target.closest('[data-act^="f"]');
+    if (!row) return;
+    e.preventDefault(); e.stopPropagation();
+    const sub = path + ' / ' + subs[+row.dataset.act.slice(1)];
+    closeOverlay();
+    setTimeout(() => ctxMenu(e.clientX, e.clientY, folderCtxItems(sub), act => folderCtxAct(sub, act)), 20);
   });
   const m = $('#layer .menu:last-child');
   if (m) { m.classList.add('folder-menu'); m.style.maxHeight = (innerHeight - y - 12) + 'px'; }
@@ -500,16 +598,9 @@ function renderBookmarks() {
       if (el.dataset.more) return;
       e.preventDefault(); e.stopPropagation();
       if (x.folder) {
-        const n = folderItems(x.folder).length;
-        ctxMenu(e.clientX, e.clientY, [
-          mi('all', 'plus', 'Open all (' + n + ') in new tabs'),
-          sep,
-          mi('add', 'bookmarkPlus', 'Add bookmark…'),
-          mi('manage', 'bookmark', 'Manage bookmarks', 'Ctrl+Shift+O'),
-        ], act => {
-          if (act === 'all') folderItems(x.folder).forEach((b, i) => host({ cmd: 'openUrl', url: b.url, background: i > 0 }));
-          else if (act === 'add') addBookmarkFromCurrent();
-          else if (act === 'manage') host({ cmd: 'open', page: 'bookmarks' });
+        ctxMenu(e.clientX, e.clientY, [...folderCtxItems(x.folder), sep, mi('manage', 'bookmark', 'Manage bookmarks', 'Ctrl+Shift+O')], act => {
+          if (act === 'manage') host({ cmd: 'open', page: 'bookmarks' });
+          else folderCtxAct(x.folder, act);
         });
         return;
       }
@@ -525,29 +616,31 @@ function renderBookmarks() {
       ], act => {
         if (act === 'open') host({ cmd: 'navigate', text: b.url });
         else if (act === 'newtab') host({ cmd: 'openUrl', url: b.url });
-        else if (act === 'edit') openBookmarkDialog({ url: b.url, title: b.title });
+        else if (act === 'edit') openBookmarkDialog({ url: b.url, title: b.title, folder: b.folder || '' });
         else if (act === 'delete') { host({ cmd: 'removeBookmark', url: b.url }); toast('Bookmark deleted', 'trash'); }
         else if (act === 'add') addBookmarkFromCurrent();
       });
     });
   });
 }
-function addBookmarkFromCurrent() {
+function addBookmarkFromCurrent(folder) {
   const t = activeTab();
   const internalNew = !t || t.url === 'mica://newtab';
-  openBookmarkDialog({ create: true, url: internalNew ? '' : t.url, title: internalNew ? '' : t.title });
+  openBookmarkDialog({ create: true, url: internalNew ? '' : t.url, title: internalNew ? '' : t.title, folder: folder || '' });
 }
 $('#bookmarks-bar').addEventListener('contextmenu', e => {
   if (e.target.closest('.bm:not(.more)')) return;
   e.preventDefault();
   ctxMenu(e.clientX, e.clientY, [
     mi('add', 'bookmarkPlus', 'Add bookmark…'),
+    mi('newfolder', 'folder', 'Add folder…'),
     mi('thispage', 'star', 'Bookmark this tab', 'Ctrl+D'),
     sep,
     mi('manage', 'bookmark', 'Manage bookmarks', 'Ctrl+Shift+O'),
     mi('hide', 'x', 'Hide bookmarks bar'),
   ], act => {
     if (act === 'add') addBookmarkFromCurrent();
+    else if (act === 'newfolder') newFolder('');
     else if (act === 'thispage') host({ cmd: 'bookmark' });
     else if (act === 'manage') host({ cmd: 'open', page: 'bookmarks' });
     else if (act === 'hide') setting('bookmarksBar', false);
@@ -698,23 +791,57 @@ function renderSplitBar() {
 //  Overlay: brings the UI over the page (with a snapshot of the page) for menus etc.
 // =====================================================================
 let overlayKind = null, overlayUp = false;
+// Live overlays (menus, panels, prompts, suggestions): Mica clips the raised UI to the toolbar plus
+// the shapes reported here, so the page underneath stays live (videos keep playing). Overlays that dim
+// the page (dialogs, the tour) cover everything.
+let overlayLive = false, overlayOutside = null, regionQueued = false;
+function sendOverlayRegion() {
+  regionQueued = false;
+  if (!overlayUp) return;
+  const d = devicePixelRatio, rects = [];
+  if (overlayLive) {
+    for (const el of $('#layer').children) {
+      if (el.classList.contains('catcher') || !el.offsetWidth) continue;
+      // union of the layout box and the drawn box (the pop-in animation scales menus slightly)
+      const b = el.getBoundingClientRect();
+      const x1 = Math.min(b.left, el.offsetLeft), y1 = Math.min(b.top, el.offsetTop);
+      const x2 = Math.max(b.right, el.offsetLeft + el.offsetWidth), y2 = Math.max(b.bottom, el.offsetTop + el.offsetHeight);
+      const r = parseFloat(getComputedStyle(el).borderTopLeftRadius) || 0;
+      rects.push({ x: Math.floor(x1 * d), y: Math.floor(y1 * d), w: Math.ceil((x2 - x1) * d) + 1, h: Math.ceil((y2 - y1) * d) + 1, r: Math.round(r * d) });
+    }
+  }
+  host({ cmd: 'overlayRegion', live: overlayLive, rects });
+}
+function queueOverlayRegion() { if (!regionQueued) { regionQueued = true; requestAnimationFrame(sendOverlayRegion); } }
+new MutationObserver(queueOverlayRegion).observe($('#layer'), { childList: true, subtree: true, attributes: true, attributeFilter: ['style', 'class'] });
+$('#layer').addEventListener('animationend', queueOverlayRegion);
+window.addEventListener('resize', queueOverlayRegion);
+
 function openOverlay(kind, opts) {
   opts = opts || {};
   overlayKind = kind;
   $('#layer').innerHTML = '';
   body.classList.add('overlay');
   body.classList.toggle('scrim', !!opts.scrim);
+  overlayLive = !opts.scrim && kind !== 'tour';
+  overlayOutside = null;
   if (opts.catcher !== false) {
+    overlayOutside = e => { if (opts.onOutside) opts.onOutside(e); else closeOverlay(); };
     const c = document.createElement('div');
     c.className = 'catcher';
-    c.addEventListener('mousedown', e => { if (opts.onOutside) opts.onOutside(e); else closeOverlay(); });
+    c.addEventListener('mousedown', e => overlayOutside && overlayOutside(e));
     $('#layer').appendChild(c);
   }
   if (!overlayUp) { overlayUp = true; host({ cmd: 'overlay', on: true }); }
+  // Dialogs (name a folder, edit a bookmark…) need the keyboard; the page may still have it, e.g. after a
+  // right-click menu closed. Menus leave it alone so typing in the page carries on.
+  if (opts.scrim) host({ cmd: 'focusUi' });
+  queueOverlayRegion();
 }
 function closeOverlay() {
   if (pageMenuDone) { const f = pageMenuDone; pageMenuDone = null; f(); }
   overlayKind = null;
+  overlayLive = false; overlayOutside = null;
   $('#layer').innerHTML = '';
   body.classList.remove('overlay', 'scrim');
   if (overlayUp) {
@@ -775,6 +902,7 @@ function openMainMenu(anchor) {
     mi('history', 'history', 'History', 'Ctrl+H'),
     mi('bookmarks', 'bookmark', 'Bookmarks', 'Ctrl+Shift+O'),
     mi('downloads', 'download', 'Downloads', 'Ctrl+J'),
+    mi('passwords', 'key', 'Passwords'),
     mi('extensions', 'puzzle', 'Extensions'),
     sep,
     '<div class="mrow"><span class="label">' + icon('zoomin') + 'Zoom</span><button class="chip-btn" data-act="zoomOut">' + icon('minus') + '</button><span class="zoom-val" id="zoom-val">' + S.zoom + '%</span><button class="chip-btn" data-act="zoomIn">' + icon('plus') + '</button><button class="chip-btn" data-act="zoomReset" title="Reset">' + icon('expand') + '</button></div>',
@@ -785,6 +913,7 @@ function openMainMenu(anchor) {
     '<div class="theme-dots">' + Object.keys(themes).map(k => '<button class="theme-dot' + (k === cur ? ' on' : '') + '" data-theme="' + k + '" title="' + themes[k].name + '"></button>').join('') + '</div>',
     mi('settings', 'settings', 'Settings', 'Ctrl+,'),
     mi('tour', 'compass', 'Take the tour'),
+    mi('whatsnew', 'sparkle', "What's new"),
     mi('about', 'info', 'About Mica'),
   ]);
   if (S.incognito) el.querySelector('[data-act=history]').classList.add('disabled');
@@ -817,6 +946,8 @@ function openMainMenu(anchor) {
       case 'print': host({ cmd: 'print' }); break;
       case 'devtools': host({ cmd: S.devtools ? 'devClose' : 'devtools' }); break;
       case 'extensions': host({ cmd: 'extensions' }); break;
+      case 'passwords': host({ cmd: 'open', page: 'passwords' }); break;
+      case 'whatsnew': setTimeout(() => openWhatsNew(S.sys.version), 30); break;
       case 'settings': host({ cmd: 'open', page: 'settings' }); break;
       case 'tour': setTimeout(() => Tour.start(false), 30); break;
       case 'about': setTimeout(openAbout, 30); break;
@@ -1466,3 +1597,173 @@ const Tour = (() => {
 // tell the host we're ready to receive state
 onSettings({});
 host({ cmd: 'ready' });
+
+// =====================================================================
+//  Print — Mica's own dialog (replaces Edge's print preview)
+// =====================================================================
+const Print = { seq: 0, pages: [], timer: 0, el: null, opts: null };
+function openPrintDialog(m) {
+  openOverlay('dialog', { scrim: true });
+  const saved = (S.settings && S.settings.printPrefs) || {};
+  const o = Print.opts = Object.assign({ printer: m.def, pages: '', copies: 1, layout: 'portrait', color: 'color', paper: 'letter', margins: 'default', scale: 100, headers: true, backgrounds: false, twoSided: false }, saved);
+  if (!m.printers.some(p => p.id === o.printer) && o.printer !== m.pdf) o.printer = m.def;
+  o.pages = ''; o.copies = 1;
+  const el = Print.el = document.createElement('div');
+  el.className = 'card panel print-card';
+  const dests = [['' + m.pdf, 'Save as PDF'], ...m.printers.map(p => [p.id, p.name])];
+  const seg = (k, opts) => '<div class="seg" data-k="' + k + '">' + opts.map(([v, l]) => '<button data-v="' + v + '"' + (o[k] === v ? ' class="on"' : '') + '>' + l + '</button>').join('') + '</div>';
+  el.innerHTML =
+    '<div class="print-preview" id="pp"><div class="pp-empty">' + icon('printer') + '<span>Making the preview…</span></div></div>' +
+    '<div class="print-side">' +
+      '<h2>Print</h2><div class="pp-count" id="pp-count">&nbsp;</div>' +
+      '<label>Destination</label><select class="field" id="p-printer">' + dests.map(([v, l]) => '<option value="' + esc(v) + '"' + (v === o.printer ? ' selected' : '') + '>' + esc(l) + '</option>').join('') + '</select>' +
+      '<label>Pages</label><div class="row2"><select class="field" id="p-pagesel"><option value="all">All</option><option value="custom">Custom</option></select><input class="field" id="p-pages" placeholder="e.g. 1-3, 5" spellcheck="false" hidden></div>' +
+      '<div class="printer-only"><label>Copies</label><input class="field" id="p-copies" type="number" min="1" max="99" value="1"></div>' +
+      '<label>Layout</label>' + seg('layout', [['portrait', 'Portrait'], ['landscape', 'Landscape']]) +
+      '<div class="printer-only"><label>Color</label>' + seg('color', [['color', 'Color'], ['bw', 'Black & white']]) + '</div>' +
+      '<details class="more"><summary>More settings</summary>' +
+        '<label>Paper size</label><select class="field" id="p-paper"><option value="letter">Letter</option><option value="legal">Legal</option><option value="a4">A4</option><option value="a3">A3</option></select>' +
+        '<label>Margins</label><select class="field" id="p-margins"><option value="default">Default</option><option value="none">None</option><option value="small">Small</option><option value="large">Large</option></select>' +
+        '<label>Scale (%)</label><input class="field" id="p-scale" type="number" min="10" max="200" step="5">' +
+        '<label class="check"><input type="checkbox" id="p-headers"> Headers and footers</label>' +
+        '<label class="check"><input type="checkbox" id="p-bg"> Background colors and images</label>' +
+        '<label class="check printer-only"><input type="checkbox" id="p-duplex"> Print on both sides</label>' +
+      '</details>' +
+      '<div class="foot"><button class="link" data-a="system" title="Use the Windows print dialog instead">Windows dialog</button><span class="spacer"></span><button class="btn ghost" data-a="cancel">Cancel</button><button class="btn primary" data-a="print" id="p-go">Print</button></div>' +
+    '</div>';
+  $('#layer').appendChild(el);
+  $('#p-paper', el).value = o.paper; $('#p-margins', el).value = o.margins; $('#p-scale', el).value = o.scale;
+  $('#p-headers', el).checked = !!o.headers; $('#p-bg', el).checked = !!o.backgrounds; $('#p-duplex', el).checked = !!o.twoSided;
+  const sync = () => {
+    const pdf = o.printer === m.pdf;
+    $$('.printer-only', el).forEach(n => n.hidden = pdf);
+    $('#p-go', el).innerHTML = pdf ? icon('download') + 'Save' : icon('printer') + 'Print';
+  };
+  const read = () => {
+    o.printer = $('#p-printer', el).value;
+    o.pages = $('#p-pagesel', el).value === 'custom' ? $('#p-pages', el).value.trim() : '';
+    o.copies = Math.max(1, Math.min(99, +$('#p-copies', el).value || 1));
+    o.paper = $('#p-paper', el).value; o.margins = $('#p-margins', el).value;
+    o.scale = Math.max(10, Math.min(200, +$('#p-scale', el).value || 100));
+    o.headers = $('#p-headers', el).checked; o.backgrounds = $('#p-bg', el).checked; o.twoSided = $('#p-duplex', el).checked;
+  };
+  const changed = (now) => { read(); sync(); clearTimeout(Print.timer); Print.timer = setTimeout(requestPreview, now ? 0 : 350); };
+  el.addEventListener('change', () => changed());
+  el.addEventListener('input', e => { if (e.target.type === 'number' || e.target.id === 'p-pages') changed(); });
+  $('#p-pagesel', el).addEventListener('change', e => { const c = e.target.value === 'custom'; $('#p-pages', el).hidden = !c; if (c) $('#p-pages', el).focus(); });
+  $$('.seg', el).forEach(s => s.addEventListener('click', e => {
+    const b = e.target.closest('button'); if (!b) return;
+    o[s.dataset.k] = b.dataset.v; $$('button', s).forEach(x => x.classList.toggle('on', x === b)); changed(true);
+  }));
+  el.addEventListener('click', e => {
+    const a = e.target.closest('[data-a]'); if (!a) return;
+    if (a.dataset.a === 'cancel') { closeOverlay(); return; }
+    read();
+    const keep = Object.assign({}, o); delete keep.pages; delete keep.copies;
+    setting('printPrefs', keep);
+    closeOverlay();
+    if (a.dataset.a === 'system') host({ cmd: 'printSystem' });
+    else host({ cmd: 'printDo', settings: Object.assign({}, o) });
+  });
+  el.addEventListener('keydown', e => { if (e.key === 'Enter' && e.target.tagName !== 'SELECT' && e.target.tagName !== 'SUMMARY') $('#p-go', el).click(); });
+  sync();
+  requestPreview();
+}
+function requestPreview() {
+  if (!Print.el || !Print.el.isConnected) return;
+  const pp = $('#pp', Print.el);
+  Print.seq = -1;
+  pp.classList.add('busy');
+  host({ cmd: 'printPreview', settings: Object.assign({ previewWidth: Math.round(Math.min(pp.clientWidth - 48, 640) * devicePixelRatio) }, Print.opts) });
+}
+function onPrintPages(m) {
+  if (!Print.el || !Print.el.isConnected) return;
+  Print.seq = m.seq;
+  const pp = $('#pp', Print.el);
+  pp.classList.remove('busy');
+  if (m.error || !m.count) {
+    pp.innerHTML = '<div class="pp-empty">' + icon('info') + '<span>' + esc(m.error ? 'The preview didn\'t work. You can still print.' : 'Nothing to print with these pages.') + '</span></div>';
+    $('#pp-count', Print.el).textContent = '';
+    return;
+  }
+  const label = m.count + (m.count === 1 ? ' sheet of paper' : ' sheets of paper');
+  $('#pp-count', Print.el).textContent = Print.opts.printer.charCodeAt(0) === 1 ? (m.count === 1 ? '1 page' : m.count + ' pages') : label;
+  pp.innerHTML = Array.from({ length: Math.min(m.count, 60) }, (_, i) => '<div class="pp-page" data-i="' + i + '"><div class="pp-ph"></div><span>' + (i + 1) + '</span></div>').join('') +
+    (m.count > 60 ? '<div class="pp-more">+ ' + (m.count - 60) + ' more pages</div>' : '');
+  const ratio = (Print.opts.layout === 'landscape') ? null : null;
+}
+function onPrintPage(m) {
+  if (!Print.el || !Print.el.isConnected || m.seq !== Print.seq) return;
+  const slot = $('.pp-page[data-i="' + m.index + '"]', Print.el);
+  if (!slot) return;
+  const img = new Image();
+  img.src = m.src; img.alt = 'Page ' + (m.index + 1);
+  const ph = $('.pp-ph', slot); if (ph) ph.replaceWith(img);
+}
+
+// =====================================================================
+//  Passwords — save prompt and fill suggestions
+// =====================================================================
+function openPwSave(m) {
+  openOverlay('menu');
+  const el = document.createElement('div');
+  el.className = 'bubble panel pw-save';
+  el.innerHTML = '<h3>' + icon('key') + (m.update ? 'Update password?' : 'Save password?') + '</h3>' +
+    '<p class="pw-site">' + esc(m.site) + '</p>' +
+    '<label>Username</label><input class="field" id="pw-user" spellcheck="false">' +
+    '<label>Password</label><input class="field" type="password" value="........" disabled>' +
+    '<p class="pw-note">' + icon('lock') + 'Encrypted on this PC with your Windows account.</p>' +
+    '<div class="row-btns">' + (m.update ? '' : '<button class="btn ghost" data-a="never">Never</button>') + '<span class="spacer"></span><button class="btn" data-a="no">Not now</button><button class="btn primary" data-a="save">' + (m.update ? 'Update' : 'Save') + '</button></div>';
+  $('#pw-user', el).value = m.user || '';
+  const answer = a => { host({ cmd: 'pwSaveAnswer', token: m.token, answer: a, user: $('#pw-user', el).value }); closeOverlay(); };
+  el.addEventListener('click', e => { const a = e.target.closest('[data-a]'); if (a) answer(a.dataset.a); });
+  el.addEventListener('keydown', e => { if (e.key === 'Enter') answer('save'); });
+  placeMenu(el, $('#btn-star').hidden ? $('#omnibox') : $('#btn-star'));
+}
+function openPwSuggest(m) {
+  openOverlay('pwsuggest');
+  const d = devicePixelRatio;
+  const el = menuEl([
+    '<div class="mhead">' + icon('key') + 'Saved for ' + esc(m.site) + '</div>',
+    ...m.items.map(it => '<div class="mi" data-id="' + esc(it.id) + '">' + icon('user') + '<span>' + esc(it.user) + '</span></div>'),
+    sep,
+    mi('manage', 'settings', 'Manage passwords'),
+  ], 'pw-suggest');
+  el.addEventListener('mousedown', e => e.preventDefault());   // don't steal focus from the page field
+  el.addEventListener('click', e => {
+    const it = e.target.closest('[data-id]');
+    const a = e.target.closest('[data-act]');
+    closeOverlay();
+    if (it) host({ cmd: 'pwFill', id: it.dataset.id });
+    else if (a && a.dataset.act === 'manage') host({ cmd: 'open', page: 'passwords' });
+  });
+  $('#layer').appendChild(el);
+  const x = m.rect.x / d, y = (m.rect.y + m.rect.h) / d + 4;
+  el.style.transformOrigin = 'top left';
+  el.style.width = Math.max(240, Math.min(360, m.rect.w / d)) + 'px';
+  el.style.left = Math.max(8, Math.min(x, innerWidth - el.offsetWidth - 8)) + 'px';
+  el.style.top = (y + el.offsetHeight > innerHeight - 8 ? Math.max(8, m.rect.y / d - el.offsetHeight - 4) : y) + 'px';
+}
+
+// =====================================================================
+//  What's new — shown once after an update, and from the menu
+// =====================================================================
+async function openWhatsNew(version) {
+  let notes;
+  try { notes = await (await fetch('whatsnew.json', { cache: 'no-store' })).json(); } catch { return; }
+  const v = (version || '').split('+')[0];
+  const entry = notes.find(n => n.version === v) || notes[0];
+  if (!entry) return;
+  openOverlay('dialog', { scrim: true });
+  const el = document.createElement('div');
+  el.className = 'card panel whatsnew';
+  el.innerHTML = '<div class="wn-badge">' + icon('sparkle') + 'Mica ' + esc(entry.version) + '</div>' +
+    '<h2>' + esc(entry.title || 'What\'s new') + '</h2>' + (entry.intro ? '<p class="lead">' + esc(entry.intro) + '</p>' : '') +
+    '<div class="wn-list">' + entry.items.map(it => '<div class="wn-item"><div class="wn-ic">' + icon(it.icon || 'check') + '</div><div><b>' + esc(it.title) + '</b><p>' + esc(it.text) + '</p></div></div>').join('') + '</div>' +
+    '<div class="foot"><span class="spacer"></span><button class="btn primary" data-a="ok">Got it</button></div>';
+  el.addEventListener('click', e => { if (e.target.closest('[data-a]')) closeOverlay(); });
+  $('#layer').appendChild(el);
+  setTimeout(() => $('[data-a=ok]', el).focus(), 30);
+  // count it as seen once it has really been on screen (the UI can reload right after an update)
+  setTimeout(() => { if (el.isConnected) host({ cmd: 'whatsNewSeen' }); }, 1500);
+}

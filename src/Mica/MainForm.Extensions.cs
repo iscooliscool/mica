@@ -147,7 +147,7 @@ namespace Mica
             // popups close by themselves depending on how fast they loaded. Clicks are unambiguous.
             var ctl = controllerField?.GetValue(v) as CoreWebView2Controller;
             popupAnchor = anchor;
-            StartPopupHook();
+            UpdateMouseHook();
             SizePopup(anchor, 240, 40);   // grows to the content as soon as it's measured
             c.NavigationCompleted += (s, e) =>
             {
@@ -203,18 +203,30 @@ namespace Mica
             extPopup.BringToFront();
         }
 
-        void StartPopupHook()
+        // One low-level mouse hook, installed only while something needs "click outside to close":
+        // an extension popup, or a live menu (see UpdateUiRegion).
+        void UpdateMouseHook()
         {
-            if (popupHook != IntPtr.Zero) return;
-            popupHookProc = PopupMouseHook;   // keep the delegate alive while the hook is installed
-            popupHook = Native.SetWindowsHookEx(Native.WH_MOUSE_LL, popupHookProc, Native.GetModuleHandle(null), 0);
+            bool need = extPopup != null || (overlay && overlayLive);
+            if (need && popupHook == IntPtr.Zero)
+            {
+                popupHookProc = PopupMouseHook;   // keep the delegate alive while the hook is installed
+                popupHook = Native.SetWindowsHookEx(Native.WH_MOUSE_LL, popupHookProc, Native.GetModuleHandle(null), 0);
+            }
+            else if (!need && popupHook != IntPtr.Zero)
+            {
+                Native.UnhookWindowsHookEx(popupHook);
+                popupHook = IntPtr.Zero;
+            }
         }
 
-        void StopPopupHook()
+        int swallowUp;   // button-up message to eat after eating its button-down
+
+        // Is the window under this screen point part of this Mica window (pages are WebView2 child windows)?
+        bool IsOurWindowAt(Point pt)
         {
-            if (popupHook == IntPtr.Zero) return;
-            Native.UnhookWindowsHookEx(popupHook);
-            popupHook = IntPtr.Zero;
+            var h = Native.WindowFromPoint(new Native.POINT { x = pt.X, y = pt.Y });
+            return h != IntPtr.Zero && Native.GetAncestor(h, 2 /* GA_ROOT */) == Handle;
         }
 
         IntPtr PopupMouseHook(int nCode, IntPtr wParam, IntPtr lParam)
@@ -222,8 +234,26 @@ namespace Mica
             try
             {
                 int msg = wParam.ToInt32();
-                if (nCode >= 0 && extPopup != null &&
-                    (msg == Native.WM_LBUTTONDOWN || msg == Native.WM_RBUTTONDOWN || msg == Native.WM_MBUTTONDOWN))
+                bool down = msg == Native.WM_LBUTTONDOWN || msg == Native.WM_RBUTTONDOWN || msg == Native.WM_MBUTTONDOWN;
+                if (nCode >= 0 && swallowUp != 0 && msg == swallowUp) { swallowUp = 0; return (IntPtr)1; }
+                if (nCode >= 0 && down && overlay && overlayLive && ui?.Region != null)
+                {
+                    var info = (Native.MSLLHOOKSTRUCT)System.Runtime.InteropServices.Marshal.PtrToStructure(lParam, typeof(Native.MSLLHOOKSTRUCT));
+                    var pt = new Point(info.x, info.y);
+                    // A click on the live page (outside the menu and the toolbar) only closes the menu, like
+                    // the full-window click catcher used to — it must not also reach the page (it would pause
+                    // a video, follow a link, …). Clicks in other apps close the menu and go through.
+                    if (!ui.Region.IsVisible(ui.PointToClient(pt)))
+                    {
+                        BeginInvoke(new Action(() => { if (overlay && overlayLive) PostUi(new { type = "overlayOutside" }); }));
+                        if (IsOurWindowAt(pt))
+                        {
+                            swallowUp = msg + 1;   // the matching button-up
+                            return (IntPtr)1;
+                        }
+                    }
+                }
+                if (nCode >= 0 && extPopup != null && down)
                 {
                     var info = (Native.MSLLHOOKSTRUCT)System.Runtime.InteropServices.Marshal.PtrToStructure(lParam, typeof(Native.MSLLHOOKSTRUCT));
                     var pt = new Point(info.x, info.y);
@@ -244,13 +274,13 @@ namespace Mica
         void CloseExtPopup() => CloseExtPopup("other");
         void CloseExtPopup(string why)
         {
-            StopPopupHook();
             if (popupSizer != null) { popupSizer.Stop(); popupSizer.Dispose(); popupSizer = null; }
             extPopupId = null;
             var v = extPopup;
             if (v == null) return;
             DebugLog("CloseExtPopup " + why);
             extPopup = null;            // clear first: removing the control can re-enter this method
+            UpdateMouseHook();
             v.Visible = false;
             Controls.Remove(v);
             v.Dispose();

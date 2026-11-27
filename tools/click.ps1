@@ -15,8 +15,13 @@ public static class C {
 # only the test copy built from this repo, never an installed Mica
 $p = Get-Process Mica -ErrorAction SilentlyContinue | Where-Object { $_.MainWindowHandle -ne 0 -and $_.Path -like "*\Code\Mica\src\*" } | Select-Object -First 1
 if (-not $p) { Write-Error "test Mica not found"; exit 1 }
+# A minimized window has off-screen bounds; the cursor would clamp to the screen edge and click
+# whatever the user has there. Refuse instead.
+Add-Type 'using System; using System.Runtime.InteropServices; public static class I { [DllImport("user32.dll")] public static extern bool IsIconic(IntPtr h); [DllImport("user32.dll")] public static extern IntPtr GetForegroundWindow(); }'
+if ([I]::IsIconic($p.MainWindowHandle)) { Write-Error "test Mica is minimized; not clicking"; exit 1 }
 [C]::SetForegroundWindow($p.MainWindowHandle) | Out-Null
 Start-Sleep -Milliseconds 300
+if ([I]::GetForegroundWindow() -ne $p.MainWindowHandle) { Write-Error "test Mica is not in front; not clicking"; exit 1 }
 $r = New-Object C+RECT
 [C]::DwmGetWindowAttribute($p.MainWindowHandle, 9, [ref]$r, 16) | Out-Null
 [C]::SetCursorPos($r.L + $X, $r.T + $Y) | Out-Null

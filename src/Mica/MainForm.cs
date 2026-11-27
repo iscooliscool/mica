@@ -59,6 +59,7 @@ namespace Mica
         bool preFsMax;
         string pipScript = "";
         string storeScript = "";
+        string pageScript = "";   // inject/mica-page.js: print + passwords, in every web page
         WebView2 spare;           // a new-tab page loaded ahead of time so Ctrl+T is instant
         bool spareBusy;
         Color pageBg = Color.White;
@@ -113,6 +114,7 @@ namespace Mica
             env = await sharedEnv;
             try { pipScript = File.ReadAllText(Path.Combine(uiDir, "inject", "pip.js")); } catch { }
             try { storeScript = File.ReadAllText(Path.Combine(uiDir, "inject", "webstore.js")); } catch { }
+            try { pageScript = File.ReadAllText(Path.Combine(uiDir, "inject", "mica-page.js")); } catch { }
 
             ui = new WebView2 { Dock = DockStyle.Fill, DefaultBackgroundColor = BackColor };
             Controls.Add(ui);
@@ -241,8 +243,10 @@ namespace Mica
             c.SetVirtualHostNameToFolderMapping(WallHost, Store.WallDir, CoreWebView2HostResourceAccessKind.DenyCors);
             c.Settings.AreDevToolsEnabled = true;
             c.Settings.IsStatusBarEnabled = true;
-            c.Settings.IsPasswordAutosaveEnabled = true;
+            // Mica's own password manager replaces Edge's save-password bubble.
+            c.Settings.IsPasswordAutosaveEnabled = false;
             c.Settings.IsGeneralAutofillEnabled = true;
+            if (pageScript.Length > 0) _ = c.AddScriptToExecuteOnDocumentCreatedAsync(pageScript);
         }
 
         void ApplyTracking()
@@ -447,6 +451,10 @@ namespace Mica
             HookPermissions(t, c);
             c.WebMessageReceived += (s, e) =>
             {
+                // messages from inject/mica-page.js (window.print, passwords) come from any site
+                Dictionary<string, object> pm = null;
+                try { pm = J.Obj(e.WebMessageAsJson); } catch { }
+                if (pm != null && pm.ContainsKey("__mica")) { OnWebPageMessage(t, e.Source, pm); return; }
                 if (e.Source.StartsWith(PagesUrl)) OnPageMessage(t, J.Obj(e.WebMessageAsJson));
                 else if (e.Source.StartsWith("https://chromewebstore.google.com/")) OnWebStoreMessage(t, J.Obj(e.WebMessageAsJson));
             };
@@ -465,8 +473,9 @@ namespace Mica
         {
             if (t == null) return;
             if (splitA != null && t != splitA && t != splitB) { splitA = splitB = null; }
-            if (t != active) CloseExtPopup();   // switching tabs closes an extension popup, like Chrome
+            if (t != active) { CloseExtPopup(); PostUi(new { type = "pwSuggestClose" }); }   // switching tabs closes popups, like Chrome
             active = t;
+            if (t.PendingPwToken != null) { var tok = t.PendingPwToken; t.PendingPwToken = null; ShowSavePrompt(tok); }
             t.LastActive = DateTime.Now;
             if (t.View == null) _ = Wake(t);
             else
@@ -582,7 +591,7 @@ namespace Mica
                 else dev.Visible = false;
             }
             LayoutExtras();
-            if (overlay) ui.BringToFront(); else ui.SendToBack();
+            if (overlay) { UpdateUiRegion(); ui.BringToFront(); } else ui.SendToBack();
         }
 
         void Place(Control v, Rectangle r)
@@ -684,6 +693,7 @@ namespace Mica
             {
                 case "extensions": return PagesUrl + "extensions.html";
                 case "downloads": return PagesUrl + "downloads.html";
+                case "passwords": return PagesUrl + "passwords.html";
                 case "history": return PagesUrl + "library.html#history";
                 case "bookmarks": return PagesUrl + "library.html#bookmarks";
                 case "settings": return PagesUrl + "settings.html" + hash;
@@ -812,7 +822,7 @@ namespace Mica
 
         void SendBookmarks()
         {
-            var msg = new { type = "bookmarks", list = store.Bookmarks };
+            var msg = new { type = "bookmarks", list = store.Bookmarks, folders = store.Folders };
             PostUi(msg);
             foreach (var t in tabs) if (t.View != null && t.Url.StartsWith("mica://")) Post(t, msg);
         }

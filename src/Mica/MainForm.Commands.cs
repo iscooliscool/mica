@@ -32,6 +32,19 @@ namespace Mica
                     SendState();
                     if (store.B("showMemory")) SendMemory();
                     if (Incognito) break;
+                    {
+                        // What's new: shown after an update until it's closed (the UI reloads itself once
+                        // after an update, so it's marked as seen only when the person closes it).
+                        // A fresh install gets the welcome tour instead.
+                        // (Its own setting: "lastVersion" is already used at startup to clear the UI cache.)
+                        var ver = Application.ProductVersion.Split('+')[0];
+                        var seen = store.Settings.Str("whatsNewSeen");
+                        if (seen != ver)
+                        {
+                            if (seen == null && !store.B("firstRunDone")) { store.Set("whatsNewSeen", ver); store.Flush(); }
+                            else PostUi(new { type = "whatsNew", version = ver });
+                        }
+                    }
                     if (!store.B("firstRunDone")) PostUi(new { type = "startTour", first = true });
                     else _ = AutoCheckUpdate();
                     _ = SendExtToolbar();
@@ -55,7 +68,12 @@ namespace Mica
                     StartDrag(edge == "topleft" ? Native.HTTOPLEFT : edge == "topright" ? Native.HTTOPRIGHT : Native.HTTOP);
                     break;
                 case "overlay": SetOverlay(m.Bool("on")); break;
-                case "raise": if (overlay) ui.BringToFront(); break;
+                case "overlayRegion": OnOverlayRegion(m); break;
+                case "focusUi": if (overlay) ui.Focus(); break;   // dialogs that take typing get the keyboard
+                case "whatsNewSeen": store.Set("whatsNewSeen", Application.ProductVersion.Split('+')[0]); store.Flush(); break;
+                case "pwFill":
+                case "pwSaveAnswer": HandlePasswordUiCommand(cmd, m); break;
+                case "raise": if (overlay) { UpdateUiRegion(); ui.BringToFront(); } break;
                 case "focusPage": if (!overlay) active?.View?.Focus(); break;
 
                 // tabs
@@ -116,11 +134,15 @@ namespace Mica
                 case "editBookmark":
                     {
                         var b = store.Bookmarks.FirstOrDefault(x => x.Str("url") == m.Str("url"));
+                        // "folder": null = leave where it is, "" = straight on the bar, "A / B" = inside that folder
+                        bool moveIt = m.ContainsKey("folder") && m["folder"] != null;
+                        string folder = moveIt ? CleanPath(m.Str("folder")) : null;
                         if (b != null)
                         {
                             if (!string.IsNullOrWhiteSpace(m.Str("title"))) b["title"] = m.Str("title").Trim();
                             var nu = Resolve(m.Str("newUrl"));
                             if (nu != null) b["url"] = nu;
+                            if (moveIt) { b["folder"] = folder; b["bar"] = FolderOnBar(folder); }
                             store.MarkDirty("bookmarks");
                         }
                         else if (m.Bool("create"))
@@ -128,7 +150,9 @@ namespace Mica
                             var nu = Resolve(m.Str("newUrl") ?? m.Str("url"));
                             if (nu != null && !store.IsBookmarked(nu))
                             {
-                                store.Bookmarks.Add(new Dictionary<string, object> { ["url"] = nu, ["title"] = string.IsNullOrWhiteSpace(m.Str("title")) ? nu : m.Str("title").Trim(), ["t"] = J.Now() });
+                                var nb = new Dictionary<string, object> { ["url"] = nu, ["title"] = string.IsNullOrWhiteSpace(m.Str("title")) ? nu : m.Str("title").Trim(), ["t"] = J.Now() };
+                                if (moveIt && folder.Length > 0) { nb["folder"] = folder; nb["bar"] = FolderOnBar(folder); }
+                                store.Bookmarks.Add(nb);
                                 store.MarkDirty("bookmarks");
                             }
                         }
@@ -146,7 +170,10 @@ namespace Mica
                 case "findPrev": try { findTab?.View?.CoreWebView2?.Find.FindPrevious(); } catch { } break;
                 case "findClose": FindStop(); active?.View?.Focus(); break;
                 case "permission": AnswerPermission(m.Str("answer", "dismiss")); break;
-                case "print": cw?.ShowPrintUI(); break;
+                case "print": OpenPrint(); break;
+                case "printPreview": _ = PrintPreview(m.Sub("settings") ?? new Dictionary<string, object>()); break;
+                case "printDo": _ = PrintNow(m.Sub("settings") ?? new Dictionary<string, object>()); break;
+                case "printSystem": printTab?.View?.CoreWebView2?.ShowPrintUI(CoreWebView2PrintDialogKind.System); break;
                 case "zoom":
                     if (active?.View != null)
                     {
@@ -187,6 +214,7 @@ namespace Mica
         void OnPageMessage(BrowserTab t, Dictionary<string, object> m)
         {
             var cmd = m.Str("cmd", "");
+            if (cmd.StartsWith("pw") && t.Url == "mica://passwords" && HandlePasswordPageCommand(t, cmd, m)) return;
             switch (cmd)
             {
                 case "hello":
@@ -262,6 +290,9 @@ namespace Mica
                     store.MarkDirty("bookmarks");
                     SendBookmarks(); SendState();
                     break;
+                case "addFolder": AddFolder(m.Str("parent", ""), m.Str("name"), m.Bool("bar", true)); break;
+                case "renameFolder": RenameFolder(m.Str("path"), m.Str("name")); break;
+                case "deleteFolder": DeleteFolder(m.Str("path")); break;
                 case "import":
                     _ = Run(async () =>
                     {
@@ -468,10 +499,19 @@ namespace Mica
         // =====================================================================
         async void SetOverlay(bool on)
         {
-            if (on == overlay) { if (on) ui.BringToFront(); return; }
+            if (on == overlay) { if (on) { UpdateUiRegion(); ui.BringToFront(); } return; }
             if (on) CloseExtPopup();   // the popup is a real window; don't let it sit over a menu
             overlay = on;
-            if (!on) { ui.SendToBack(); if (active?.View != null && !fullscreen) active.View.Focus(); return; }
+            if (!on)
+            {
+                overlayClosedAt = DateTime.UtcNow;
+                overlayLive = false; overlayKeep.Clear();
+                UpdateUiRegion();
+                UpdateMouseHook();
+                ui.SendToBack();
+                if (active?.View != null && !fullscreen) active.View.Focus();
+                return;
+            }
 
             var shots = new List<object>();
             if (!store.B("potato"))
@@ -498,6 +538,50 @@ namespace Mica
             }
             if (!overlay) return; // closed while we were capturing
             PostUi(new { type = "backdrop", shots });
+        }
+
+        // ---- Live menus ----
+        // Menus, the downloads panel, prompts and address suggestions don't dim the page, so the raised UI
+        // is clipped to the toolbar plus the menu shapes. Pages and side panels stay visible and live
+        // everywhere else (a playing video keeps playing instead of showing the still snapshot).
+        // Full-screen dialogs and the tour (which dim the page) still cover everything.
+        bool overlayLive;
+        readonly List<KeyValuePair<Rectangle, int>> overlayKeep = new List<KeyValuePair<Rectangle, int>>();
+
+        void OnOverlayRegion(Dictionary<string, object> m)
+        {
+            overlayLive = overlay && m.Bool("live");
+            overlayKeep.Clear();
+            if (m.TryGetValue("rects", out var raw) && raw is object[] arr)
+                foreach (var o in arr)
+                    if (o is Dictionary<string, object> r)
+                        overlayKeep.Add(new KeyValuePair<Rectangle, int>(
+                            new Rectangle(r.Int("x"), r.Int("y"), r.Int("w"), r.Int("h")), r.Int("r")));
+            UpdateUiRegion();
+            UpdateMouseHook();
+        }
+
+        void UpdateUiRegion()
+        {
+            if (ui == null) return;
+            if (!overlay || !overlayLive)
+            {
+                if (ui.Region != null) { var old = ui.Region; ui.Region = null; old.Dispose(); }
+                return;
+            }
+            var reg = new Region(new Rectangle(Point.Empty, ui.Size));
+            foreach (Control c in Controls)
+                if (c is WebView2 && c != ui && c != extPopup && c.Visible)
+                    reg.Exclude(new Rectangle(c.Left - ui.Left, c.Top - ui.Top, c.Width, c.Height));
+            foreach (var k in overlayKeep)
+            {
+                var r = k.Key; r.Offset(-ui.Left, -ui.Top);
+                if (k.Value > 0) using (var rr = Rounded(r.Size, k.Value)) { rr.Translate(r.X, r.Y); reg.Union(rr); }
+                else reg.Union(r);
+            }
+            var prev = ui.Region;
+            ui.Region = reg;
+            prev?.Dispose();
         }
 
         // =====================================================================
@@ -567,6 +651,7 @@ namespace Mica
                 case Keys.Control | Keys.Oemcomma: OpenInternal("settings"); return true;
                 case Keys.Control | Keys.J: OpenInternal("downloads"); return true;
                 case Keys.Control | Keys.F: OpenFind(); return true;
+                case Keys.Control | Keys.P: OpenPrint(); return true;   // Mica's print dialog, not Edge's
                 case Keys.F3: if (findTab?.View != null) { try { findTab.View.CoreWebView2.Find.FindNext(); } catch { } } else OpenFind(); return true;
                 case Keys.Shift | Keys.F3: try { findTab?.View?.CoreWebView2?.Find.FindPrevious(); } catch { } return true;
                 case Keys.Control | Keys.Shift | Keys.A: if (store.B("aiEnabled")) ToggleAi(!aiOpen); else OpenInternal("settings#ai"); return true;
