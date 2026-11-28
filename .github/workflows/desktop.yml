@@ -36,7 +36,11 @@ jobs:
       - run: npm ci
 
       - name: Build
-        run: npx electron-builder --${{ matrix.target }} --publish never
+        shell: bash
+        # macOS runners sometimes keep the new disk image busy (Spotlight/XProtect): index off + retry
+        run: |
+          [ "${{ matrix.target }}" = mac ] && sudo mdutil -a -i off || true
+          for i in 1 2 3; do npx electron-builder --${{ matrix.target }} --publish never && exit 0; echo "retry $i"; sleep 10; done; exit 1
         env:
           CSC_IDENTITY_AUTO_DISCOVERY: 'false'
 
