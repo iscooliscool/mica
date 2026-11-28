@@ -1,4 +1,4 @@
-# Builds Mica for macOS and Linux (src/MicaDesktop, Electron) and smoke-tests each build:
+﻿# Builds Mica for macOS and Linux (src/MicaDesktop, Electron) and smoke-tests each build:
 # the packaged app is started, must load its own UI, and a screenshot is kept as an artifact.
 name: Mac + Linux builds
 
@@ -16,7 +16,7 @@ jobs:
       fail-fast: false
       matrix:
         include:
-          - os: macos-14
+          - os: macos-latest
             target: mac
           - os: ubuntu-24.04
             target: linux
