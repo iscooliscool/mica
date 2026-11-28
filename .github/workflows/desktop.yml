@@ -1,0 +1,91 @@
+# Builds Mica for macOS and Linux (src/MicaDesktop, Electron) and smoke-tests each build:
+# the packaged app is started, must load its own UI, and a screenshot is kept as an artifact.
+name: Mac + Linux builds
+
+on:
+  workflow_dispatch:
+  push:
+    tags: ['v*']
+
+permissions:
+  contents: write
+
+jobs:
+  build:
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - os: macos-14
+            target: mac
+          - os: ubuntu-24.04
+            target: linux
+    runs-on: ${{ matrix.os }}
+    defaults:
+      run:
+        working-directory: src/MicaDesktop
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+          cache-dependency-path: src/MicaDesktop/package-lock.json
+
+      - run: npm ci
+
+      - name: Build
+        run: npx electron-builder --${{ matrix.target }} --publish never
+        env:
+          CSC_IDENTITY_AUTO_DISCOVERY: 'false'
+
+      - name: Linux test deps
+        if: matrix.target == 'linux'
+        run: sudo apt-get update -qq && sudo apt-get install -y -qq xvfb libfuse2t64 dbus-x11
+
+      - name: Smoke test (packaged app)
+        shell: bash
+        run: |
+          set -x
+          export MICA_DATA="$RUNNER_TEMP/micadata" MICA_DEVTOOLS_PORT=9333
+          if [ "${{ matrix.target }}" = mac ]; then
+            APP=$(ls -d dist/mac-arm64/Mica.app/Contents/MacOS/Mica)
+            "$APP" > "$RUNNER_TEMP/mica.log" 2>&1 &
+          else
+            chmod +x dist/*.AppImage
+            xvfb-run -a -s "-screen 0 1400x900x24" dbus-launch $(ls dist/*.AppImage) --no-sandbox > "$RUNNER_TEMP/mica.log" 2>&1 &
+          fi
+          ok=
+          for i in $(seq 1 40); do
+            sleep 1
+            if curl -s http://127.0.0.1:9333/json/list | grep -q 'mica://ui/chrome.html'; then ok=1; break; fi
+          done
+          cat "$RUNNER_TEMP/mica.log" || true
+          [ -n "$ok" ] || { echo "Mica's UI never loaded"; exit 1; }
+          sleep 4
+          node ../../tools/cdp.mjs list
+          node ../../tools/cdp.mjs shot chrome.html "$RUNNER_TEMP/ui.png"
+          node ../../tools/cdp.mjs shot mica://newtab "$RUNNER_TEMP/newtab.png"
+          node ../../tools/cdp.mjs eval chrome.html "document.querySelector('#address') && document.querySelector('#htabs').children.length ? 'ui ok' : 'UI BROKEN'"
+
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: smoke-${{ matrix.target }}
+          path: ${{ runner.temp }}/*.png
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: mica-${{ matrix.target }}
+          path: |
+            src/MicaDesktop/dist/*.dmg
+            src/MicaDesktop/dist/*.AppImage
+            src/MicaDesktop/dist/*.deb
+
+      - name: Attach to release
+        if: startsWith(github.ref, 'refs/tags/v')
+        shell: bash
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: gh release upload "$GITHUB_REF_NAME" $(ls dist/*.dmg dist/*.AppImage dist/*.deb 2>/dev/null) --clobber

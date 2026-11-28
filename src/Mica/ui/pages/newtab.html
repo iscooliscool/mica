@@ -138,7 +138,7 @@ function render() {
   // wallpaper
   const wall = $('#wall');
   if (s.wallpaper && !Mica.incognito) {
-    const url = 'https://mica-wall.example/' + encodeURIComponent(s.wallpaper);
+    const url = (window.__micaWallBase || 'https://mica-wall.example/') + encodeURIComponent(s.wallpaper);   // Mac/Linux serve wallpapers at mica://wall/
     if (wall.dataset.src !== url) { wall.dataset.src = url; wall.style.backgroundImage = 'url("' + url + '")'; }
     wall.classList.add('on');
     $('#dim').style.opacity = s.wallpaperDim == null ? .2 : s.wallpaperDim;

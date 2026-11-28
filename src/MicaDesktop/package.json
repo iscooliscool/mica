@@ -1,0 +1,46 @@
+{
+  "name": "mica",
+  "productName": "Mica",
+  "version": "1.4.0",
+  "description": "A fast, light browser. Mica for macOS and Linux.",
+  "homepage": "https://iscooliscool.github.io/mica/",
+  "license": "MIT",
+  "author": { "name": "Mica contributors", "email": "123330063+iscooliscool@users.noreply.github.com" },
+  "main": "main.js",
+  "scripts": {
+    "start": "electron .",
+    "dist:linux": "electron-builder --linux --publish never",
+    "dist:mac": "electron-builder --mac --publish never"
+  },
+  "devDependencies": {
+    "electron": "45.5.0",
+    "electron-builder": "26.0.12"
+  },
+  "build": {
+    "appId": "io.github.iscooliscool.mica",
+    "productName": "Mica",
+    "copyright": "Copyright (c) 2026 Mica contributors. MIT License.",
+    "files": ["*.js", "package.json"],
+    "extraResources": [{ "from": "../Mica/ui", "to": "ui" }],
+    "artifactName": "Mica-${version}-${os}-${arch}.${ext}",
+    "protocols": [{ "name": "Web page", "schemes": ["http", "https"] }],
+    "fileAssociations": [{ "ext": "html", "name": "HTML document", "role": "Viewer" }, { "ext": "htm", "name": "HTML document", "role": "Viewer" }],
+    "mac": {
+      "target": [{ "target": "dmg", "arch": ["arm64", "x64"] }],
+      "category": "public.app-category.productivity",
+      "icon": "../../assets/mica-1024.png",
+      "identity": null,
+      "extendInfo": { "NSCameraUsageDescription": "Websites can ask to use your camera.", "NSMicrophoneUsageDescription": "Websites can ask to use your microphone." }
+    },
+    "dmg": { "title": "Mica ${version}" },
+    "linux": {
+      "target": [{ "target": "AppImage", "arch": ["x64"] }, { "target": "deb", "arch": ["x64"] }],
+      "category": "Network",
+      "icon": "../../assets/mica-1024.png",
+      "maintainer": "Mica contributors <123330063+iscooliscool@users.noreply.github.com>",
+      "synopsis": "A fast, light browser",
+      "mimeTypes": ["x-scheme-handler/http", "x-scheme-handler/https", "text/html"],
+      "desktop": { "entry": { "Categories": "Network;WebBrowser;", "StartupWMClass": "Mica" } }
+    }
+  }
+}

@@ -6,3 +6,4 @@ installer/redist/
 .vs/
 *.tmp
 HANDOFF.md
+node_modules/
