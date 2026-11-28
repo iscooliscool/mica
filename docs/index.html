@@ -3,9 +3,9 @@
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
-<title>Mica — a fast, light browser for any Windows PC</title>
-<meta name="description" content="Mica is a free, open-source Chromium browser for Windows that stays fast on old laptops with 2 GB of RAM. Chrome extensions, a built-in password manager, sleeping tabs and themes.">
-<meta property="og:title" content="Mica — a fast, light browser for any Windows PC">
+<title>Mica — a fast, light browser for Windows, Mac and Linux</title>
+<meta name="description" content="Mica is a free, open-source Chromium browser for Windows, Mac and Linux that stays fast on old laptops with 2 GB of RAM. Chrome extensions, a built-in password manager, sleeping tabs and themes.">
+<meta property="og:title" content="Mica — a fast, light browser for Windows, Mac and Linux">
 <meta property="og:description" content="Free and open source. Fast on old laptops. Chrome extensions, passwords, sleeping tabs and themes.">
 <meta property="og:image" content="img/newtab.webp">
 <link rel="icon" href="img/mica-256.png">
@@ -41,6 +41,9 @@
   .btn-dl svg { width: 22px; height: 22px; }
   .cta small { color: var(--dim); font-size: 13.5px; }
   .cta small a { color: var(--dim); }
+  .cta small.others { font-size: 13px; opacity: .85; margin-top: -4px; }
+  .cta small a[hidden] { display: none; }
+  .others a:not([hidden]) ~ a:not([hidden])::before { content: " · "; color: var(--dim); }
   .shot-hero { margin: 54px auto 0; max-width: 1000px; border-radius: 16px; overflow: hidden; border: 1px solid var(--line); box-shadow: 0 40px 120px rgba(0,0,0,.6), 0 0 0 1px rgba(255,255,255,.03); }
   .shot-hero img { display: block; width: 100%; height: auto; }
 
@@ -102,14 +105,18 @@
 <header class="hero">
   <div class="wrap">
     <img class="logo" src="img/mica-256.png" alt="Mica logo">
-    <h1>The fast browser for <span>any</span> Windows PC</h1>
+    <h1>The fast browser for <span>any</span> computer</h1>
     <p class="lead">Mica is a free, open-source browser that stays quick on old laptops — even ones with 2&nbsp;GB of memory. Your Chrome extensions, a built-in password manager, sleeping tabs and beautiful themes.</p>
     <div class="cta">
       <a class="btn-dl" id="dl" href="https://github.com/iscooliscool/mica/releases/latest">
         <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"><path d="M12 4v11"/><path d="M7.5 10.5 12 15l4.5-4.5"/><path d="M5 20h14"/></svg>
         <span id="dl-text">Download Mica for Windows</span>
       </a>
-      <small><span id="dl-meta">Windows 10 and 11 · Free</span> · <a id="dl32" href="https://github.com/iscooliscool/mica/releases/latest">32-bit version</a></small>
+      <small><span id="dl-meta">Free</span><span id="dl-extra"></span></small>
+      <small class="others" id="dl-others">Also for
+        <a data-os="win" href="https://github.com/iscooliscool/mica/releases/latest">Windows</a>
+        <a data-os="mac" href="https://github.com/iscooliscool/mica/releases/latest">Mac</a>
+        <a data-os="linux" href="https://github.com/iscooliscool/mica/releases/latest">Linux</a></small>
     </div>
     <div class="shot-hero"><img src="img/newtab.webp" alt="Mica's new tab page" width="1426" height="840"></div>
   </div>
@@ -182,14 +189,16 @@
     <details><summary>Windows says “Windows protected your PC”. Is Mica safe?</summary><p>Mica isn't code-signed yet, so Windows SmartScreen doesn't recognize it. Click <b>More info → Run anyway</b>. Mica is open source — you can read every line of it on GitHub. Updates after that install themselves.</p></details>
     <details><summary>Will my Chrome extensions work?</summary><p>Most do: ad blockers, dark mode, password managers and tools for sites. A few that rely on Chrome-only features may not work fully.</p></details>
     <details><summary>Can I bring my bookmarks and passwords from Chrome?</summary><p>Yes. Mica imports bookmarks, history and extensions from Chrome, Edge, Brave, Vivaldi and Opera. For passwords, export them in Chrome (chrome://password-manager/settings) and use Import on Mica's Passwords page.</p></details>
-    <details><summary>Does it work on 32-bit Windows?</summary><p>Yes — grab the 32-bit version under the download button.</p></details>
-    <details><summary>What does Mica need?</summary><p>Windows 10 or 11 with Microsoft's WebView2 runtime, which comes with Windows. No account required.</p></details>
+    <details><summary>Does it work on Mac and Linux?</summary><p>Yes. The Mac version runs on Apple silicon and Intel Macs (macOS 12 or newer). For Linux there's an AppImage that runs on most distros, and a .deb for Ubuntu, Debian and Mint. Same look, same extensions, same password manager (protected by your Keychain or keyring).</p></details>
+    <details><summary>My Mac says Mica “can't be opened”.</summary><p>Mica isn't notarized by Apple yet. Drag Mica to Applications, then right-click it and choose <b>Open</b>, and <b>Open</b> again. You only need to do this once.</p></details>
+    <details><summary>Does it work on 32-bit Windows?</summary><p>Yes — get the 32-bit version from the download options.</p></details>
+    <details><summary>What does Mica need?</summary><p>Windows 10 or 11 (Mica uses the WebView2 engine that comes with Windows, so it's about 5&nbsp;MB), macOS 12 or newer, or a 64-bit Linux desktop. No account required.</p></details>
   </div>
 </section>
 
 <div class="final wrap">
   <h2>Give your old PC a fast browser</h2>
-  <p class="sub" style="margin-bottom:28px">Free, open source, and about 5&nbsp;MB.</p>
+  <p class="sub" style="margin-bottom:28px">Free and open source, for Windows, Mac and Linux.</p>
   <a class="btn-dl" id="dl2" href="https://github.com/iscooliscool/mica/releases/latest">
     <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"><path d="M12 4v11"/><path d="M7.5 10.5 12 15l4.5-4.5"/><path d="M5 20h14"/></svg>
     Download Mica
@@ -207,20 +216,44 @@
 </footer>
 
 <script>
-// Point the download buttons straight at the newest installer.
+// Point the download buttons at the newest build for the visitor's computer.
+const ua = navigator.userAgent, plat = (navigator.userAgentData && navigator.userAgentData.platform) || navigator.platform || '';
+const OS = /Mac|iPhone|iPad/i.test(plat + ua) ? 'mac' : /Linux|X11|CrOS/i.test(plat + ua) && !/Android/i.test(ua) ? 'linux' : 'win';
+const NAMES = { win: 'Windows', mac: 'Mac', linux: 'Linux' };
+const mb = a => (a.size / 1048576).toFixed(0) + ' MB';
+const $ = id => document.getElementById(id);
+$('dl-text').textContent = 'Download Mica for ' + NAMES[OS];
+for (const a of document.querySelectorAll('#dl-others a')) a.hidden = a.dataset.os === OS;
 fetch('https://api.github.com/repos/iscooliscool/mica/releases/latest')
   .then(r => r.ok ? r.json() : null)
   .then(rel => {
     if (!rel || !rel.assets) return;
-    const x64 = rel.assets.find(a => /Setup\.exe$/i.test(a.name) && !/32bit/i.test(a.name));
-    const x86 = rel.assets.find(a => /32bit/i.test(a.name));
+    const find = re => rel.assets.find(a => re.test(a.name));
+    const pick = {
+      win: find(/Setup\.exe$/i), win32: find(/Setup-32bit\.exe$/i),
+      mac: find(/mac-arm64\.dmg$/i), macIntel: find(/mac-x64\.dmg$/i),
+      linux: find(/\.AppImage$/i), deb: find(/\.deb$/i),
+    };
     const v = (rel.tag_name || '').replace(/^v/, '');
-    if (x64) {
-      ['dl', 'dl2'].forEach(id => document.getElementById(id).href = x64.browser_download_url);
-      document.getElementById('dl-text').textContent = 'Download Mica ' + v;
-      document.getElementById('dl-meta').textContent = 'Windows 10 and 11 · ' + (x64.size / 1048576).toFixed(1) + ' MB · Free';
+    const main = pick[OS] || pick.win;
+    if (!main) return;
+    ['dl', 'dl2'].forEach(id => $(id).href = main.browser_download_url);
+    $('dl-text').textContent = 'Download Mica ' + v + ' for ' + NAMES[pick[OS] ? OS : 'win'];
+    const link = (a, t) => a ? ' · <a href="' + a.browser_download_url + '">' + t + '</a>' : '';
+    if (OS === 'mac' && pick.mac) {
+      $('dl-meta').textContent = 'Apple silicon · ' + mb(main) + ' · Free';
+      $('dl-extra').innerHTML = link(pick.macIntel, 'Intel Mac');
+    } else if (OS === 'linux' && pick.linux) {
+      $('dl-meta').textContent = 'AppImage · ' + mb(main) + ' · Free';
+      $('dl-extra').innerHTML = link(pick.deb, '.deb for Ubuntu/Debian');
+    } else {
+      $('dl-meta').textContent = 'Windows 10 and 11 · ' + (main.size / 1048576).toFixed(1) + ' MB · Free';
+      $('dl-extra').innerHTML = link(pick.win32, '32-bit version');
     }
-    if (x86) document.getElementById('dl32').href = x86.browser_download_url;
+    for (const a of document.querySelectorAll('#dl-others a')) {
+      const f = pick[a.dataset.os];
+      if (f) a.href = f.browser_download_url;
+    }
   })
   .catch(() => {});
 </script>

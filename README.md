@@ -7,7 +7,7 @@
 Chromium engine · themes you can make your own · free built-in AI · no account, no ads.</p>
 
 <p align="center">
-  <a href="https://github.com/iscooliscool/mica/releases/latest"><b>⬇ Download for Windows</b></a>
+  <a href="https://iscooliscool.github.io/mica/"><b>⬇ Download for Windows, Mac or Linux</b></a>
 </p>
 
 ![Mica with side tabs, split screen and the AI panel](docs/screenshot-split.png)
@@ -57,6 +57,11 @@ Most browsers assume you have plenty of memory. Mica is designed for PCs with **
 
 No admin rights needed. Mica installs just for the current user, with its own animated installer that shows tips while it works.
 
+**Mac:** macOS 12 or newer, Apple silicon (`mac-arm64.dmg`) or Intel (`mac-x64.dmg`). Mica isn't notarized yet, so the first time, right-click Mica in Applications → **Open**.
+**Linux:** any 64-bit desktop. The `.AppImage` runs on most distros (`chmod +x` it, then open it); the `.deb` installs on Ubuntu, Debian and Mint. Saved passwords need your desktop's keyring (GNOME Keyring or KWallet).
+
+On Mac and Linux, use `Cmd`/`Ctrl` for the shortcuts below.
+
 ## Keyboard shortcuts
 
 | Action | Keys |
@@ -91,6 +96,8 @@ How it's put together:
 - `src/Mica/ui/pages/`: Mica's own pages: new tab, settings, history and bookmarks.
 - `src/Mica/ui/shared/themes.js`: every theme is a set of CSS variables, shared by the interface and the pages.
 - `src/MicaSetup/`: Mica's own installer and uninstaller. It's one self-contained `.exe` with a custom animated interface (`ui/setup.html`), install tips, a silent mode for updates, and per-user install (no admin).
+
+Mac and Linux: `src/MicaDesktop/` is an Electron host that plays the part of the C# app and runs the very same `src/Mica/ui` interface (it speaks the same messages, so features land on every platform at once). `npm ci && npm start` runs it; `npx electron-builder --mac` or `--linux` packages it. GitHub Actions (`.github/workflows/desktop.yml`) builds and smoke-tests the Mac and Linux versions for every release tag.
 
 Tip: set `MICA_DATA` to a folder to use a separate profile (handy for testing, or a portable USB setup).
 

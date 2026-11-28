@@ -1,5 +1,14 @@
 [
   {
+    "version": "1.4.0",
+    "title": "Mica for Mac and Linux",
+    "intro": "Mica now runs on more computers.",
+    "items": [
+      { "icon": "download", "title": "Mac and Linux versions", "text": "Mica is now available for macOS (Apple silicon and Intel) and Linux (AppImage and .deb). Same look, same features, same extensions. Get them at iscooliscool.github.io/mica." },
+      { "icon": "sparkle", "title": "Small fixes", "text": "New tab wallpapers load more reliably." }
+    ]
+  },
+  {
     "version": "1.3.0",
     "title": "Passwords, printing and folders",
     "intro": "Here's what changed in this update.",
